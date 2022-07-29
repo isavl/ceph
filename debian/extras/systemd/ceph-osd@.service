@@ -1,0 +1,53 @@
+[Unit]
+
+Description=Ceph object storage daemon (%i)
+
+After=local-fs.target
+After=network-online.target
+After=time-sync.target
+
+Before=ceph-osd.target
+Before=remote-fs-pre.target
+
+Wants=ceph-osd.target
+Wants=local-fs.target
+Wants=network-online.target
+Wants=remote-fs-pre.target
+Wants=time-sync.target
+
+PartOf=ceph-osd.target
+
+[Service]
+
+ExecStartPre=/usr/libexec/ceph/ceph-osd-prestart.sh --cluster ceph --id %i
+ExecStart=/usr/bin/ceph-osd --cluster ceph --id %i --setuser ceph --setgroup ceph
+ExecReload=/bin/kill -HUP $MAINPID
+
+Type=forking
+
+PIDFile=/run/ceph/ceph-osd-%i.pid
+
+LimitNOFILE=1048576
+LimitNPROC=1048576
+
+LockPersonality=yes
+
+MemoryDenyWriteExecute=no
+
+NoNewPrivileges=no
+
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=no
+ProtectSystem=full
+
+Restart=on-failure
+RestartSec=60s
+
+TasksMax=infinity
+
+[Install]
+
+WantedBy=ceph-osd.target

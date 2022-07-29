@@ -1,0 +1,12 @@
+###############################################################################
+# Configuration file for rbdmap script.
+#
+# Format:
+#
+#   rbd device    parameters
+#
+# Example:
+#
+#   poolname/imagename    id=client,keyring=/etc/ceph/ceph.client.keyring
+###############################################################################
+

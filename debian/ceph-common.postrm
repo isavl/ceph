@@ -1,0 +1,22 @@
+#!/bin/sh
+
+set -e
+
+if [ "${1}" = "purge" ]; the
+    [ -f "/etc/default/ceph" ] && . /etc/default/ceph
+
+    [ -z "${SERVER_USER}" ] && SERVER_USER="ceph"
+
+    rm -rf /etc/ceph
+    rm -rf /var/log/ceph
+
+    if [ -f "/etc/shadow" ]; then
+        usermod -L -e 1 "${SERVER_USER}"
+    else
+        usermod -L "${SERVER_USER}"
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,5 @@
+ceph (16.2.7-1) unstable; urgency=medium
+
+  * Upstream release 16.2.7
+
+ -- Igor Savlook <isav@alzari.pw>  Thu, 09 Jun 2022 19:27:00 +0300

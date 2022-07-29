@@ -1,0 +1,31 @@
+[Unit]
+
+Description=Map Ceph RBD devices
+
+After=ceph.target
+After=network-online.target
+
+Before=remote-fs-pre.target
+
+Wants=ceph.target
+Wants=network-online.target
+Wants=remote-fs-pre.target
+
+[Service]
+
+Environment=RBDMAPFILE=/etc/ceph/rbdmap
+
+ExecStart=/usr/bin/rbdmap map
+ExecStop=/usr/bin/rbdmap unmap-all
+ExecReload=/usr/bin/rbdmap map
+
+Type=oneshot
+
+RemainAfterExit=yes
+
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+
+WantedBy=multi-user.target

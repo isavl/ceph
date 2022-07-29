@@ -1,0 +1,43 @@
+[Unit]
+
+Description=Ceph immutable object cache daemon (%i)
+
+After=local-fs.target
+After=network-online.target
+
+Wants=local-fs.target
+Wants=network-online.target
+
+PartOf=ceph-immutable-object-cache.target
+
+[Service]
+
+ExecStart=/usr/bin/ceph-immutable-object-cache -f --cluster ceph --id %i --setuser ceph --setgroup ceph
+ExecReload=/bin/kill -HUP $MAINPID
+
+LockPersonality=true
+
+MemoryDenyWriteExecute=true
+
+NoNewPrivileges=true
+
+PrivateDevices=true
+PrivateTmp=true
+
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=full
+
+Restart=on-failure
+RestartSec=30s
+
+RestrictSUIDSGID=true
+
+[Install]
+
+WantedBy=ceph-immutable-object-cache.target

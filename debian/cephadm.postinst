@@ -1,0 +1,49 @@
+#!/bin/sh
+
+set -e
+
+umask 022
+
+CEPHADM_HOME="/var/lib/cephadm"
+
+if [ "${1}" = "configure" ] || [ "${1}" = "reconfigure" ]; then
+    if ! getent group cephadm > /dev/null 2>&1; then
+        addgroup --quiet --system cephadm "${ADDGROUP_PARAM}"
+    fi
+
+    if ! getent passwd cephadm; then
+        adduser \
+            --system \
+            --home /var/lib/cephadm \
+            --no-create-home \
+            --quiet \
+            --disabled-password \
+            --gecos "ceph user for mgr/cephadm" \
+            --shell /bin/bash \
+            --ingroup cephadm \
+            cephadm 2>/dev/null || true
+    fi
+
+    if [ ! -d "${CEPHADM_HOME}" ]; then
+        mkdir -p "${CEPHADM_HOME}"
+    fi
+
+    chown cephadm:cephadm "${CEPHADM_HOME}"
+    chmod 0755 "${CEPHADM_HOME}"
+
+    if ! [ -d "${CEPHADM_HOME}/.ssh" ]; then
+        mkdir "${CEPHADM_HOME}/.ssh"
+        chown --reference "${CEPHADM_HOME}" "${CEPHADM_HOME}/.ssh"
+        chmod 0700 "${CEPHADM_HOME}/.ssh"
+    fi
+
+    if ! [ -e "${CEPHADM_HOME}/.ssh/authorized_keys" ]; then
+        touch "${CEPHADM_HOME}/.ssh/authorized_keys"
+        chown --reference "${CEPHADM_HOME}" "${CEPHADM_HOME}/.ssh/authorized_keys"
+        chmod 0600 "${CEPHADM_HOME}/.ssh/authorized_keys"
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

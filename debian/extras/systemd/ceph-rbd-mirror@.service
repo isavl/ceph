@@ -1,0 +1,43 @@
+[Unit]
+
+Description=Ceph rbd mirror daemon (%i)
+
+After=local-fs.target
+After=network-online.target
+
+Wants=local-fs.target
+Wants=network-online.target
+
+PartOf=ceph-rbd-mirror.target
+
+[Service]
+
+ExecStart=/usr/bin/rbd-mirror -f --cluster ceph --id %i --setuser ceph --setgroup ceph
+ExecReload=/bin/kill -HUP $MAINPID
+
+LimitNOFILE=1048576
+LimitNPROC=1048576
+
+LockPersonality=yes
+
+MemoryDenyWriteExecute=yes
+
+NoNewPrivileges=yes
+
+PrivateDevices=yes
+PrivateTmp=yes
+
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=full
+
+Restart=on-failure
+RestartSec=60s
+
+TasksMax=infinity
+
+[Install]
+
+WantedBy=ceph-rbd-mirror.target

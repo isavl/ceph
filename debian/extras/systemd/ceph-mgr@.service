@@ -1,0 +1,54 @@
+[Unit]
+
+Description=Ceph cluster manager daemon (%i)
+
+After=local-fs.target
+After=network-online.target
+After=time-sync.target
+
+Before=ceph-mgr.target
+Before=remote-fs-pre.target
+
+Wants=ceph-mgr.target
+Wants=local-fs.target
+Wants=network-online.target
+Wants=remote-fs-pre.target
+Wants=time-sync.target
+
+PartOf=ceph-mgr.target
+
+[Service]
+
+ExecStart=/usr/bin/ceph-mgr --cluster ceph --id %i --setuser ceph --setgroup ceph
+ExecReload=/bin/kill -HUP $MAINPID
+
+Type=forking
+
+PIDFile=/run/ceph/ceph-mgr-%i.pid
+
+LimitNOFILE=1048576
+LimitNPROC=1048576
+
+LockPersonality=yes
+
+# We need to disable this protection as some python libraries generate
+# dynamic code, like python-cffi, and require mmap calls to succeed.
+MemoryDenyWriteExecute=no
+
+NoNewPrivileges=yes
+
+PrivateDevices=yes
+PrivateTmp=yes
+
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=full
+
+Restart=on-failure
+RestartSec=60s
+
+[Install]
+
+WantedBy=ceph-mgr.target

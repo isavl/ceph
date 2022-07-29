@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -e
+
+umask 022
+
+[ -f "/etc/default/ceph" ] && . /etc/default/ceph
+
+[ -z "${SERVER_USER}" ] && SERVER_USER="ceph"
+[ -z "${SERVER_GROUP}" ] && SERVER_GROUP="ceph"
+
+if [ "${1}" = "configure" ]; then
+    if ! dpkg-statoverride --list /var/lib/ceph/mgr >/dev/null; then
+        chown "${SERVER_USER}:${SERVER_GROUP}" /var/lib/ceph/mgr
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

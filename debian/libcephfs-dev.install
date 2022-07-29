@@ -1,0 +1,4 @@
+usr/include/cephfs/*.h
+usr/include/cephfs/*/*.h
+
+usr/lib/*/libcephfs.so

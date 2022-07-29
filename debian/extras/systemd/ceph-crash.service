@@ -1,0 +1,16 @@
+[Unit]
+
+Description=Ceph crash dump collector
+
+[Service]
+
+ExecStart=/usr/bin/ceph-crash
+
+Type=simple
+
+Restart=on-failure
+RestartSec=30s
+
+[Install]
+
+WantedBy=ceph.target
