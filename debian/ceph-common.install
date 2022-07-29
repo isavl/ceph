@@ -27,7 +27,7 @@ usr/bin/ceph-post-file
 usr/sbin/mount.ceph sbin
 
 usr/lib/*/ceph/compressor/*
-usr/lib/*/ceph/crypto/* [amd64]
+usr/lib/*/ceph/crypto/*
 
 usr/share/ceph/known_hosts_drop.ceph.com
 usr/share/ceph/id_rsa_drop.ceph.com

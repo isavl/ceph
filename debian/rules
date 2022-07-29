@@ -136,7 +136,7 @@ override_dh_auto_install:
 
 	install -m 755 src/cephadm/cephadm $(DESTDIR)/usr/sbin/cephadm
 
-	install -D -m 644 monitoring/prometheus/alerts/ceph_default_alerts.yml $(DESTDIR)/etc/prometheus/ceph/ceph_default_alerts.yml
+	install -D -m 644 monitoring/ceph-mixin/prometheus_alerts.yml $(DESTDIR)/etc/prometheus/ceph/ceph_default_alerts.yml
 
 	rm -f -r $(DESTDIR)/etc/bash_completion.d
 
@@ -146,6 +146,8 @@ override_dh_auto_install:
 # the package install - package ships unversioned modules.
 	rm -f $(DESTDIR)/usr/lib/*/ceph/erasure-code/libec_*.so.*
 	find $(DESTDIR)/usr/lib/*/ceph/erasure-code -type l -delete || :
+
+	rm -f -r $(DESTDIR)/usr/share/ceph/mgr/diskprediction_local
 
 # Avoid running out of disk space.
 	rm -rf $(CURDIR)/obj-*-linux-gnu

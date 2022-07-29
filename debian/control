@@ -297,20 +297,6 @@ Depends:
 Description: Debugging symbols for ceph-mgr
  This package contains the debugging symbols for ceph-mgr.
 
-Package: ceph-mgr-diskprediction-local
-Architecture: all
-Depends:
-    ${misc:Depends},
-    ${shlibs:Depends},
-    ${python3:Depends},
-    ceph-mgr (>= ${binary:Version}),
-    python3-numpy,
-    python3-scipy,
-    python3-sklearn,
-Description: Diskprediction-local plugin for ceph-mgr
- This package contains the diskprediction_local plugin for the ceph-mgr
- daemon, which helps predict disk failures.
-
 Package: ceph-mgr-k8sevents
 Architecture: all
 Depends:

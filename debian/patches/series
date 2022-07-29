@@ -1,5 +1,3 @@
-disable-crypto.patch
-
 civetweb-755-1.8-somaxconn-configurable_conf.patch
 civetweb-755-1.8-somaxconn-configurable.patch
 civetweb-755-1.8-somaxconn-configurable_test.patch
@@ -12,8 +10,6 @@ add-option-to-disable-ceph-dencoder.patch
 
 riscv64-link-pthread.patch
 
-disable-log-slow-requests.patch
-
 compile-ppc.c-on-all-powerpc-machines.patch
 
 bug1914584.patch
@@ -24,3 +20,7 @@ cmake-test-for-16-bytes-atomic-support-on-mips-also.patch
 only-yied-under-armv7-and-above.patch
 
 fix-build-with-fmt-8.1.1.patch
+
+fix-FTBFS-include-memory.h.patch
+
+fix-rbdmap-mount-by-fstab.patch
