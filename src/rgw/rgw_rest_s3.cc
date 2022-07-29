@@ -393,7 +393,8 @@ int RGWGetObj_ObjStore_S3::send_response_data(bufferlist& bl, off_t bl_ofs,
         try {
           decode(retention, iter->second);
           dump_header(s, "x-amz-object-lock-mode", retention.get_mode());
-          dump_time_header(s, "x-amz-object-lock-retain-until-date", retention.get_retain_until_date());
+          string date = ceph::to_iso_8601(retention.get_retain_until_date());
+          dump_header(s, "x-amz-object-lock-retain-until-date", date.c_str());
         } catch (buffer::error& err) {
           ldpp_dout(this, 0) << "ERROR: failed to decode RGWObjectRetention" << dendl;
         }
@@ -4950,9 +4951,14 @@ int RGWHandler_REST_S3Website::retarget(RGWOp* op, RGWOp** new_op, optional_yiel
   if (!(s->prot_flags & RGW_REST_WEBSITE))
     return 0;
 
+  if (rgw::sal::RGWBucket::empty(s->bucket.get())) {
+    // TODO-FUTURE: if the bucket does not exist, maybe expose it here?
+    return -ERR_NO_SUCH_BUCKET;
+  }
+
   if (!s->bucket->get_info().has_website) {
-      // TODO-FUTURE: if the bucket has no WebsiteConfig, expose it here
-      return -ERR_NO_SUCH_WEBSITE_CONFIGURATION;
+    // TODO-FUTURE: if the bucket has no WebsiteConfig, expose it here
+    return -ERR_NO_SUCH_WEBSITE_CONFIGURATION;
   }
 
   rgw_obj_key new_obj;
