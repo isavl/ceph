@@ -1,3 +1,9 @@
+ceph (16.2.10-1+deb11) bullseye; urgency=medium
+
+  * Rebuild 16.2.10-1 for bullseye
+
+ -- Igor Savlook <isav@alzari.pw>  Mon, 12 Sep 2022 00:21:56 +0300
+
 ceph (16.2.10-1) unstable; urgency=medium
 
   * Upstream release 16.2.10
