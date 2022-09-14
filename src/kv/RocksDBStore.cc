@@ -1,17 +1,11 @@
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 // vim: ts=8 sw=2 smarttab
 
-#include <set>
-#include <map>
-#include <string>
-#include <memory>
-#if __has_include(<filesystem>)
 #include <filesystem>
-namespace fs = std::filesystem;
-#elif __has_include(<experimental/filesystem>)
-#include <experimental/filesystem>
-namespace fs = std::experimental::filesystem;
-#endif
+#include <map>
+#include <memory>
+#include <set>
+#include <string>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -42,6 +36,8 @@ namespace fs = std::experimental::filesystem;
 #define dout_subsys ceph_subsys_rocksdb
 #undef dout_prefix
 #define dout_prefix *_dout << "rocksdb: "
+
+namespace fs = std::filesystem;
 
 using std::function;
 using std::list;
@@ -323,14 +319,14 @@ int RocksDBStore::tryInterpret(const string &key, const string &val, rocksdb::Op
 {
   if (key == "compaction_threads") {
     std::string err;
-    int f = strict_iecstrtoll(val.c_str(), &err);
+    int f = strict_iecstrtoll(val, &err);
     if (!err.empty())
       return -EINVAL;
     //Low priority threadpool is used for compaction
     opt.env->SetBackgroundThreads(f, rocksdb::Env::Priority::LOW);
   } else if (key == "flusher_threads") {
     std::string err;
-    int f = strict_iecstrtoll(val.c_str(), &err);
+    int f = strict_iecstrtoll(val, &err);
     if (!err.empty())
       return -EINVAL;
     //High priority threadpool is used for flusher
@@ -367,7 +363,6 @@ int RocksDBStore::ParseOptionsFromStringStatic(
 {
   // keep aligned with func tryInterpret
   const set<string> need_interp_keys = {"compaction_threads", "flusher_threads", "compact_on_mount", "disableWAL"};
-  int r;
   rocksdb::Status status;
   std::unordered_map<std::string, std::string> str_map;
   status = StringToMap(opt_str, &str_map);
@@ -381,6 +376,7 @@ int RocksDBStore::ParseOptionsFromStringStatic(
     string this_opt = it->first + "=" + it->second;
     rocksdb::Status status =
       rocksdb::GetOptionsFromString(opt, this_opt, &opt);
+    int r = 0;
     if (!status.ok()) {
       if (interp != nullptr) {
 	r = interp(it->first, it->second, opt);
@@ -626,18 +622,6 @@ bool RocksDBStore::is_column_family(const std::string& prefix) {
   return cf_handles.count(prefix);
 }
 
-std::string_view RocksDBStore::get_key_hash_view(const prefix_shards& shards, const char* key, const size_t keylen) {
-  uint32_t hash_l = std::min<uint32_t>(shards.hash_l, keylen);
-  uint32_t hash_h = std::min<uint32_t>(shards.hash_h, keylen);
-  return { key + hash_l, hash_h - hash_l };
-}
-
-rocksdb::ColumnFamilyHandle *RocksDBStore::get_key_cf(const prefix_shards& shards, const char* key, const size_t keylen) {
-  auto sv = get_key_hash_view(shards, key, keylen);
-  uint32_t hash = ceph_str_hash_rjenkins(sv.data(), sv.size());
-  return shards.handles[hash % shards.handles.size()];
-}
-
 rocksdb::ColumnFamilyHandle *RocksDBStore::get_cf_handle(const std::string& prefix, const std::string& key) {
   auto iter = cf_handles.find(prefix);
   if (iter == cf_handles.end()) {
@@ -646,7 +630,10 @@ rocksdb::ColumnFamilyHandle *RocksDBStore::get_cf_handle(const std::string& pref
     if (iter->second.handles.size() == 1) {
       return iter->second.handles[0];
     } else {
-      return get_key_cf(iter->second, key.data(), key.size());
+      uint32_t hash_l = std::min<uint32_t>(iter->second.hash_l, key.size());
+      uint32_t hash_h = std::min<uint32_t>(iter->second.hash_h, key.size());
+      uint32_t hash = ceph_str_hash_rjenkins(&key[hash_l], hash_h - hash_l);
+      return iter->second.handles[hash % iter->second.handles.size()];
     }
   }
 }
@@ -659,34 +646,11 @@ rocksdb::ColumnFamilyHandle *RocksDBStore::get_cf_handle(const std::string& pref
     if (iter->second.handles.size() == 1) {
       return iter->second.handles[0];
     } else {
-      return get_key_cf(iter->second, key, keylen);
+      uint32_t hash_l = std::min<uint32_t>(iter->second.hash_l, keylen);
+      uint32_t hash_h = std::min<uint32_t>(iter->second.hash_h, keylen);
+      uint32_t hash = ceph_str_hash_rjenkins(&key[hash_l], hash_h - hash_l);
+      return iter->second.handles[hash % iter->second.handles.size()];
     }
-  }
-}
-
-/**
- * If the specified IteratorBounds arg has both an upper and a lower bound defined, and they have equal placement hash
- * strings, we can be sure that the entire iteration range exists in a single CF. In that case, we return the relevant
- * CF handle. In all other cases, we return a nullptr to indicate that the specified bounds cannot necessarily be mapped
- * to a single CF.
- */
-rocksdb::ColumnFamilyHandle *RocksDBStore::get_cf_handle(const std::string& prefix, const IteratorBounds& bounds) {
-  if (!bounds.lower_bound || !bounds.upper_bound) {
-    return nullptr;
-  }
-  auto iter = cf_handles.find(prefix);
-  ceph_assert(iter != cf_handles.end());
-  ceph_assert(iter->second.handles.size() != 1);
-  if (iter->second.hash_l != 0) {
-    return nullptr;
-  }
-  auto lower_bound_hash_str = get_key_hash_view(iter->second, bounds.lower_bound->data(), bounds.lower_bound->size());
-  auto upper_bound_hash_str = get_key_hash_view(iter->second, bounds.upper_bound->data(), bounds.upper_bound->size());
-  if (lower_bound_hash_str == upper_bound_hash_str) {
-    auto key = *bounds.lower_bound;
-    return get_key_cf(iter->second, key.data(), key.size());
-  } else {
-    return nullptr;
   }
 }
 
@@ -793,7 +757,7 @@ void RocksDBStore::sharding_def_to_columns(const std::vector<ColumnFamily>& shar
 	columns.push_back(sharding_def[i].name);
     } else {
       for (size_t j = 0; j < sharding_def[i].shard_cnt; j++) {
-	columns.push_back(sharding_def[i].name + "-" + to_string(j));
+	columns.push_back(sharding_def[i].name + "-" + std::to_string(j));
       }
     }
   }
@@ -817,7 +781,7 @@ int RocksDBStore::create_shards(const rocksdb::Options& opt,
       if (p.shard_cnt == 1)
 	cf_name = p.name;
       else
-	cf_name = p.name + "-" + to_string(idx);
+	cf_name = p.name + "-" + std::to_string(idx);
       rocksdb::ColumnFamilyHandle *cf;
       status = db->CreateColumnFamily(cf_opt, cf_name, &cf);
       if (!status.ok()) {
@@ -1076,7 +1040,7 @@ int RocksDBStore::verify_sharding(const rocksdb::Options& opt,
       emplace_cf(column, 0, column.name, cf_opt);
     } else {
       for (size_t i = 0; i < column.shard_cnt; i++) {
-	std::string cf_name = column.name + "-" + to_string(i);
+	std::string cf_name = column.name + "-" + std::to_string(i);
 	emplace_cf(column, i, cf_name, cf_opt);
       }
     }
@@ -1235,7 +1199,6 @@ int RocksDBStore::do_open(ostream &out,
   ceph_assert(default_cf != nullptr);
   
   PerfCountersBuilder plb(cct, "rocksdb", l_rocksdb_first, l_rocksdb_last);
-  plb.add_u64_counter(l_rocksdb_gets, "get", "Gets");
   plb.add_time_avg(l_rocksdb_get_latency, "get_latency", "Get latency");
   plb.add_time_avg(l_rocksdb_submit_latency, "submit_latency", "Submit Latency");
   plb.add_time_avg(l_rocksdb_submit_sync_latency, "submit_sync_latency", "Submit Sync Latency");
@@ -1865,7 +1828,6 @@ int RocksDBStore::get(
     }
   }
   utime_t lat = ceph_clock_now() - start;
-  logger->inc(l_rocksdb_gets);
   logger->tinc(l_rocksdb_get_latency, lat);
   return 0;
 }
@@ -1901,7 +1863,6 @@ int RocksDBStore::get(
     ceph_abort_msg(s.getState());
   }
   utime_t lat = ceph_clock_now() - start;
-  logger->inc(l_rocksdb_gets);
   logger->tinc(l_rocksdb_get_latency, lat);
   return r;
 }
@@ -1939,7 +1900,6 @@ int RocksDBStore::get(
     ceph_abort_msg(s.getState());
   }
   utime_t lat = ceph_clock_now() - start;
-  logger->inc(l_rocksdb_gets);
   logger->tinc(l_rocksdb_get_latency, lat);
   return r;
 }
@@ -2234,29 +2194,10 @@ class CFIteratorImpl : public KeyValueDB::IteratorImpl {
 protected:
   string prefix;
   rocksdb::Iterator *dbiter;
-  const KeyValueDB::IteratorBounds bounds;
-  const rocksdb::Slice iterate_lower_bound;
-  const rocksdb::Slice iterate_upper_bound;
 public:
-  explicit CFIteratorImpl(const RocksDBStore* db,
-                          const std::string& p,
-                          rocksdb::ColumnFamilyHandle* cf,
-                          KeyValueDB::IteratorBounds bounds_)
-    : prefix(p), bounds(std::move(bounds_)),
-      iterate_lower_bound(make_slice(bounds.lower_bound)),
-      iterate_upper_bound(make_slice(bounds.upper_bound))
-      {
-      auto options = rocksdb::ReadOptions();
-      if (db->cct->_conf->osd_rocksdb_iterator_bounds_enabled) {
-        if (bounds.lower_bound) {
-          options.iterate_lower_bound = &iterate_lower_bound;
-        }
-        if (bounds.upper_bound) {
-          options.iterate_upper_bound = &iterate_upper_bound;
-        }
-      }
-      dbiter = db->db->NewIterator(options, cf);
-  }
+  explicit CFIteratorImpl(const std::string& p,
+				 rocksdb::Iterator *iter)
+    : prefix(p), dbiter(iter) { }
   ~CFIteratorImpl() {
     delete dbiter;
   }
@@ -2788,31 +2729,16 @@ private:
   const RocksDBStore* db;
   KeyLess keyless;
   string prefix;
-  const KeyValueDB::IteratorBounds bounds;
-  const rocksdb::Slice iterate_lower_bound;
-  const rocksdb::Slice iterate_upper_bound;
   std::vector<rocksdb::Iterator*> iters;
 public:
   explicit ShardMergeIteratorImpl(const RocksDBStore* db,
 				  const std::string& prefix,
-				  const std::vector<rocksdb::ColumnFamilyHandle*>& shards,
-                  KeyValueDB::IteratorBounds bounds_)
-    : db(db), keyless(db->comparator), prefix(prefix), bounds(std::move(bounds_)),
-      iterate_lower_bound(make_slice(bounds.lower_bound)),
-      iterate_upper_bound(make_slice(bounds.upper_bound))
+				  const std::vector<rocksdb::ColumnFamilyHandle*>& shards)
+    : db(db), keyless(db->comparator), prefix(prefix)
   {
     iters.reserve(shards.size());
-    auto options = rocksdb::ReadOptions();
-    if (db->cct->_conf->osd_rocksdb_iterator_bounds_enabled) {
-      if (bounds.lower_bound) {
-        options.iterate_lower_bound = &iterate_lower_bound;
-      }
-      if (bounds.upper_bound) {
-        options.iterate_upper_bound = &iterate_upper_bound;
-      }
-    }
     for (auto& s : shards) {
-      iters.push_back(db->db->NewIterator(options, s));
+      iters.push_back(db->db->NewIterator(rocksdb::ReadOptions(), s));
     }
   }
   ~ShardMergeIteratorImpl() {
@@ -2842,14 +2768,14 @@ public:
       if (iters[0]->Valid()) {
 	if (iters[i]->Valid()) {
 	  if (keyless(iters[0], iters[i])) {
-	    swap(iters[0], iters[i]);
+	    std::swap(iters[0], iters[i]);
 	  }
 	} else {
 	  //iters[i] empty
 	}
       } else {
 	if (iters[i]->Valid()) {
-	  swap(iters[0], iters[i]);
+	  std::swap(iters[0], iters[i]);
 	}
       }
       //it might happen that cf was empty
@@ -2983,28 +2909,19 @@ public:
   }
 };
 
-KeyValueDB::Iterator RocksDBStore::get_iterator(const std::string& prefix, IteratorOpts opts, IteratorBounds bounds)
+KeyValueDB::Iterator RocksDBStore::get_iterator(const std::string& prefix, IteratorOpts opts)
 {
   auto cf_it = cf_handles.find(prefix);
   if (cf_it != cf_handles.end()) {
-    rocksdb::ColumnFamilyHandle* cf = nullptr;
     if (cf_it->second.handles.size() == 1) {
-      cf = cf_it->second.handles[0];
-    } else if (cct->_conf->osd_rocksdb_iterator_bounds_enabled) {
-      cf = get_cf_handle(prefix, bounds);
-    }
-    if (cf) {
       return std::make_shared<CFIteratorImpl>(
-              this,
-              prefix,
-              cf,
-              std::move(bounds));
+        prefix,
+        db->NewIterator(rocksdb::ReadOptions(), cf_it->second.handles[0]));
     } else {
       return std::make_shared<ShardMergeIteratorImpl>(
         this,
         prefix,
-        cf_it->second.handles,
-        std::move(bounds));
+        cf_it->second.handles);
     }
   } else {
     return KeyValueDB::get_iterator(prefix, opts);
@@ -3019,8 +2936,11 @@ rocksdb::Iterator* RocksDBStore::new_shard_iterator(rocksdb::ColumnFamilyHandle*
 RocksDBStore::WholeSpaceIterator RocksDBStore::get_wholespace_iterator(IteratorOpts opts)
 {
   if (cf_handles.size() == 0) {
+    rocksdb::ReadOptions opt = rocksdb::ReadOptions();
+    if (opts & ITERATOR_NOCACHE)
+      opt.fill_cache=false;
     return std::make_shared<RocksDBWholeSpaceIteratorImpl>(
-      this, default_cf, opts);
+      db->NewIterator(opt, default_cf));
   } else {
     return std::make_shared<WholeMergeIteratorImpl>(this);
   }
@@ -3028,7 +2948,8 @@ RocksDBStore::WholeSpaceIterator RocksDBStore::get_wholespace_iterator(IteratorO
 
 RocksDBStore::WholeSpaceIterator RocksDBStore::get_default_cf_iterator()
 {
-  return std::make_shared<RocksDBWholeSpaceIteratorImpl>(this, default_cf, 0);
+  return std::make_shared<RocksDBWholeSpaceIteratorImpl>(
+    db->NewIterator(rocksdb::ReadOptions(), default_cf));
 }
 
 int RocksDBStore::prepare_for_reshard(const std::string& new_sharding,
@@ -3246,7 +3167,7 @@ int RocksDBStore::reshard_cleanup(const RocksDBStore::columns_t& current_columns
       new_sharding_columns.push_back(name);
     } else {
       for (size_t i = 0; i < handle.handles.size(); i++) {
-	new_sharding_columns.push_back(name + "-" + to_string(i));
+	new_sharding_columns.push_back(name + "-" + std::to_string(i));
       }
     }
   }

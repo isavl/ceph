@@ -46,7 +46,13 @@
 #define dout_subsys ceph_subsys_mds
 #undef dout_prefix
 #define dout_prefix *_dout << "mds." << whoami << '.' << incarnation << ' '
+
+using std::ostream;
+using std::set;
+using std::string;
+using std::vector;
 using TOPNSPC::common::cmd_getval;
+
 class C_Flush_Journal : public MDSInternalContext {
 public:
   C_Flush_Journal(MDCache *mdcache, MDLog *mdlog, MDSRank *mds,
@@ -57,7 +63,7 @@ public:
   }
 
   void send() {
-    assert(ceph_mutex_is_locked(mds->mds_lock));
+    ceph_assert(ceph_mutex_is_locked(mds->mds_lock));
 
     dout(20) << __func__ << dendl;
 
@@ -258,7 +264,7 @@ public:
   void send() {
     // not really a hard requirement here, but lets ensure this in
     // case we change the logic here.
-    assert(ceph_mutex_is_locked(mds->mds_lock));
+    ceph_assert(ceph_mutex_is_locked(mds->mds_lock));
 
     dout(20) << __func__ << dendl;
     f->open_object_section("result");
@@ -477,7 +483,6 @@ private:
 
 MDSRank::MDSRank(
     mds_rank_t whoami_,
-    std::string fs_name_,
     ceph::fair_mutex &mds_lock_,
     LogChannelRef &clog_,
     CommonSafeTimer<ceph::fair_mutex> &timer_,
@@ -495,7 +500,7 @@ MDSRank::MDSRank(
     damage_table(whoami_), sessionmap(this),
     op_tracker(g_ceph_context, g_conf()->mds_enable_op_tracker,
                g_conf()->osd_num_op_tracker_shard),
-    progress_thread(this), whoami(whoami_), fs_name(fs_name_),
+    progress_thread(this), whoami(whoami_),
     purge_queue(g_ceph_context, whoami_,
       mdsmap_->get_metadata_pool(), objecter,
       new LambdaContext([this](int r) {
@@ -551,6 +556,7 @@ MDSRank::~MDSRank()
 {
   if (hb) {
     g_ceph_context->get_heartbeat_map()->remove_worker(hb);
+    hb = nullptr;
   }
 
   if (scrubstack) { delete scrubstack; scrubstack = NULL; }
@@ -1446,8 +1452,7 @@ void MDSRank::send_message_mds(const ref_t<Message>& m, mds_rank_t mds)
   // send mdsmap first?
   auto addrs = mdsmap->get_addrs(mds);
   if (mds != whoami && peer_mdsmap_epoch[mds] < mdsmap->get_epoch()) {
-    auto _m = make_message<MMDSMap>(monc->get_fsid(), *mdsmap,
-				    std::string(mdsmap->get_fs_name()));
+    auto _m = make_message<MMDSMap>(monc->get_fsid(), *mdsmap);
     send_message_mds(_m, addrs);
     peer_mdsmap_epoch[mds] = mdsmap->get_epoch();
   }
@@ -2354,7 +2359,7 @@ void MDSRankDispatcher::handle_mds_map(
 
     if (oldstate == MDSMap::STATE_STANDBY_REPLAY) {
         dout(10) << "Monitor activated us! Deactivating replay loop" << dendl;
-        assert (state == MDSMap::STATE_REPLAY);
+        ceph_assert (state == MDSMap::STATE_REPLAY);
     } else {
       // did i just recover?
       if ((is_active() || is_clientreplay()) &&
@@ -2789,11 +2794,18 @@ void MDSRankDispatcher::handle_asok_command(
     command_export_dir(f, path, (mds_rank_t)rank);
   } else if (command == "dump cache") {
     std::lock_guard l(mds_lock);
+    int64_t timeout = 0;
+    cmd_getval(cmdmap, "timeout", timeout);
+    auto mds_beacon_interval = g_conf().get_val<double>("mds_beacon_interval");
+    if (timeout <= 0)
+      timeout = mds_beacon_interval / 2;
+    else if (timeout > mds_beacon_interval)
+      timeout = mds_beacon_interval;
     string path;
     if (!cmd_getval(cmdmap, "path", path)) {
-      r = mdcache->dump_cache(f);
+      r = mdcache->dump_cache(f, timeout);
     } else {
-      r = mdcache->dump_cache(path);
+      r = mdcache->dump_cache(path, timeout);
     }
   } else if (command == "cache drop") {
     int64_t timeout = 0;
@@ -3077,7 +3089,7 @@ int MDSRank::_command_export_dir(
 
   CInode *in = mdcache->cache_traverse(fp);
   if (!in) {
-    derr << "Bath path '" << path << "'" << dendl;
+    derr << "bad path '" << path << "'" << dendl;
     return -CEPHFS_ENOENT;
   }
   CDir *dir = in->get_dirfrag(frag_t());
@@ -3283,7 +3295,7 @@ void MDSRank::command_dump_inode(Formatter *f, const cmdmap_t &cmdmap, std::ostr
 
 void MDSRank::dump_status(Formatter *f) const
 {
-  f->dump_string("fs_name", fs_name);
+  f->dump_string("fs_name", std::string(mdsmap->get_fs_name()));
   if (state == MDSMap::STATE_REPLAY ||
       state == MDSMap::STATE_STANDBY_REPLAY) {
     mdlog->dump_replay_status(f);
@@ -3309,25 +3321,8 @@ void MDSRank::dump_clientreplay_status(Formatter *f) const
 
 void MDSRankDispatcher::update_log_config()
 {
-  map<string,string> log_to_monitors;
-  map<string,string> log_to_syslog;
-  map<string,string> log_channel;
-  map<string,string> log_prio;
-  map<string,string> log_to_graylog;
-  map<string,string> log_to_graylog_host;
-  map<string,string> log_to_graylog_port;
-  uuid_d fsid;
-  string host;
-
-  if (parse_log_client_options(g_ceph_context, log_to_monitors, log_to_syslog,
-			       log_channel, log_prio, log_to_graylog,
-			       log_to_graylog_host, log_to_graylog_port,
-			       fsid, host) == 0)
-    clog->update_config(log_to_monitors, log_to_syslog,
-			log_channel, log_prio, log_to_graylog,
-			log_to_graylog_host, log_to_graylog_port,
-			fsid, host);
-  dout(10) << __func__ << " log_to_monitors " << log_to_monitors << dendl;
+  auto parsed_options = clog->parse_client_options(g_ceph_context);
+  dout(10) << __func__ << " log_to_monitors " << parsed_options.log_to_monitors << dendl;
 }
 
 void MDSRank::create_logger()
@@ -3675,7 +3670,6 @@ bool MDSRank::evict_client(int64_t session_id,
 
 MDSRankDispatcher::MDSRankDispatcher(
     mds_rank_t whoami_,
-    std::string fs_name_,
     ceph::fair_mutex &mds_lock_,
     LogChannelRef &clog_,
     CommonSafeTimer<ceph::fair_mutex> &timer_,
@@ -3687,7 +3681,7 @@ MDSRankDispatcher::MDSRankDispatcher(
     Context *respawn_hook_,
     Context *suicide_hook_,
     boost::asio::io_context& ioc)
-  : MDSRank(whoami_, fs_name_, mds_lock_, clog_, timer_, beacon_, mdsmap_,
+  : MDSRank(whoami_, mds_lock_, clog_, timer_, beacon_, mdsmap_,
             msgr, monc_, mgrc, respawn_hook_, suicide_hook_, ioc)
 {
     g_conf().add_observer(this);
@@ -3721,6 +3715,7 @@ const char** MDSRankDispatcher::get_tracked_conf_keys() const
     "host",
     "mds_bal_fragment_dirs",
     "mds_bal_fragment_interval",
+    "mds_bal_fragment_size_max",
     "mds_cache_memory_limit",
     "mds_cache_mid",
     "mds_cache_reservation",
@@ -3757,6 +3752,7 @@ const char** MDSRankDispatcher::get_tracked_conf_keys() const
     "mds_cap_acquisition_throttle_retry_request_time",
     "mds_alternate_name_max",
     "mds_dir_max_entries",
+    "mds_symlink_recovery",
     NULL
   };
   return KEYS;

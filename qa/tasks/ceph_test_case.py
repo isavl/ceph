@@ -3,7 +3,7 @@ import unittest
 import time
 import logging
 
-from teuthology.orchestra.run import CommandFailedError
+from teuthology.exceptions import CommandFailedError
 
 if TYPE_CHECKING:
     from tasks.mgr.mgr_test_case import MgrCluster
@@ -161,6 +161,7 @@ class CephTestCase(unittest.TestCase):
             log.debug("Not found expected summary strings yet ({0})".format(summary_strings))
             return False
 
+        log.info(f"waiting {timeout}s for health warning matching {pattern}")
         self.wait_until_true(seen_health_warning, timeout)
 
     def wait_for_health_clear(self, timeout):

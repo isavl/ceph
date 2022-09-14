@@ -27,7 +27,6 @@ import { RbdConfigurationSourcePipe } from './rbd-configuration-source.pipe';
 import { RelativeDatePipe } from './relative-date.pipe';
 import { RoundPipe } from './round.pipe';
 import { SanitizeHtmlPipe } from './sanitize-html.pipe';
-import { SearchHighlightPipe } from './search-highlight.pipe';
 import { TruncatePipe } from './truncate.pipe';
 import { UpperFirstPipe } from './upper-first.pipe';
 
@@ -61,8 +60,7 @@ import { UpperFirstPipe } from './upper-first.pipe';
     DurationPipe,
     MapPipe,
     TruncatePipe,
-    SanitizeHtmlPipe,
-    SearchHighlightPipe
+    SanitizeHtmlPipe
   ],
   exports: [
     ArrayPipe,
@@ -92,8 +90,7 @@ import { UpperFirstPipe } from './upper-first.pipe';
     DurationPipe,
     MapPipe,
     TruncatePipe,
-    SanitizeHtmlPipe,
-    SearchHighlightPipe
+    SanitizeHtmlPipe
   ],
   providers: [
     ArrayPipe,
@@ -117,6 +114,7 @@ import { UpperFirstPipe } from './upper-first.pipe';
     MillisecondsPipe,
     NotAvailablePipe,
     UpperFirstPipe,
+    DurationPipe,
     MapPipe,
     TruncatePipe,
     SanitizeHtmlPipe

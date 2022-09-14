@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
 
 import copy
 import os
@@ -315,7 +314,7 @@ class Host(RESTController):
                      'hostname': (str, 'Hostname'),
                      'addr': (str, 'Network Address'),
                      'labels': ([str], 'Host Labels'),
-                     'status': (str, 'Host Status'),
+                     'status': (str, 'Host Status')
                  },
                  responses={200: None, 204: None})
     @RESTController.MethodMap(version=APIVersion.EXPERIMENTAL)

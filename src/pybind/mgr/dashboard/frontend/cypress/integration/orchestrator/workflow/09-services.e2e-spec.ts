@@ -2,7 +2,6 @@ import { ServicesPageHelper } from 'cypress/integration/cluster/services.po';
 
 describe('Services page', () => {
   const services = new ServicesPageHelper();
-  const mdsDaemonName = 'mds.test';
   beforeEach(() => {
     cy.login();
     Cypress.Cookies.preserveOnce('token');
@@ -16,51 +15,51 @@ describe('Services page', () => {
   it('should create an mds service', () => {
     services.navigateTo('create');
     services.addService('mds', false);
-    services.checkExist(mdsDaemonName, true);
+    services.checkExist('mds.test', true);
 
-    services.clickServiceTab(mdsDaemonName, 'Details');
+    services.clickServiceTab('mds.test', 'Details');
     cy.get('cd-service-details').within(() => {
-      services.checkServiceStatus(mdsDaemonName);
+      services.checkServiceStatus('mds');
     });
   });
 
   it('should stop a daemon', () => {
-    services.clickServiceTab(mdsDaemonName, 'Details');
-    services.checkServiceStatus(mdsDaemonName);
+    services.clickServiceTab('mds.test', 'Details');
+    services.checkServiceStatus('mds');
 
     services.daemonAction('mds', 'stop');
-    services.checkServiceStatus(mdsDaemonName, 'stopped');
+    services.checkServiceStatus('mds', 'stopped');
   });
 
   it('should restart a daemon', () => {
-    services.checkExist(mdsDaemonName, true);
-    services.clickServiceTab(mdsDaemonName, 'Details');
+    services.checkExist('mds.test', true);
+    services.clickServiceTab('mds.test', 'Details');
     services.daemonAction('mds', 'restart');
-    services.checkServiceStatus(mdsDaemonName, 'running');
+    services.checkServiceStatus('mds', 'running');
   });
 
   it('should redeploy a daemon', () => {
-    services.checkExist(mdsDaemonName, true);
-    services.clickServiceTab(mdsDaemonName, 'Details');
+    services.checkExist('mds.test', true);
+    services.clickServiceTab('mds.test', 'Details');
 
     services.daemonAction('mds', 'stop');
-    services.checkServiceStatus(mdsDaemonName, 'stopped');
+    services.checkServiceStatus('mds', 'stopped');
     services.daemonAction('mds', 'redeploy');
-    services.checkServiceStatus(mdsDaemonName, 'running');
+    services.checkServiceStatus('mds', 'running');
   });
 
   it('should start a daemon', () => {
-    services.checkExist(mdsDaemonName, true);
-    services.clickServiceTab(mdsDaemonName, 'Details');
+    services.checkExist('mds.test', true);
+    services.clickServiceTab('mds.test', 'Details');
 
     services.daemonAction('mds', 'stop');
-    services.checkServiceStatus(mdsDaemonName, 'stopped');
+    services.checkServiceStatus('mds', 'stopped');
     services.daemonAction('mds', 'start');
-    services.checkServiceStatus(mdsDaemonName, 'running');
+    services.checkServiceStatus('mds', 'running');
   });
 
   it('should delete an mds service', () => {
-    services.deleteService(mdsDaemonName);
+    services.deleteService('mds.test');
   });
 
   it('should create and delete snmp-gateway service with version V2c', () => {

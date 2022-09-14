@@ -13,6 +13,7 @@
 #include "rgw_client_io.h"
 #include "rgw_rest.h"
 #include "rgw_zone.h"
+#include "rgw_rados.h"
 
 #include "services/svc_zone.h"
 
@@ -20,6 +21,8 @@
 #include <math.h>
 
 #define dout_subsys ceph_subsys_rgw
+
+using namespace std;
 
 static void set_param_str(struct req_state *s, const char *name, string& str)
 {
@@ -91,7 +94,7 @@ string render_log_object_name(const string& format,
 /* usage logger */
 class UsageLogger : public DoutPrefixProvider {
   CephContext *cct;
-  RGWRados *store;
+  rgw::sal::Store* store;
   map<rgw_user_bucket, RGWUsageBatch> usage_map;
   ceph::mutex lock = ceph::make_mutex("UsageLogger");
   int32_t num_entries;
@@ -114,7 +117,7 @@ class UsageLogger : public DoutPrefixProvider {
   }
 public:
 
-  UsageLogger(CephContext *_cct, RGWRados *_store) : cct(_cct), store(_store), num_entries(0), timer(cct, timer_lock) {
+  UsageLogger(CephContext *_cct, rgw::sal::Store* _store) : cct(_cct), store(_store), num_entries(0), timer(cct, timer_lock) {
     timer.init();
     std::lock_guard l{timer_lock};
     set_timer();
@@ -178,7 +181,7 @@ public:
 
 static UsageLogger *usage_logger = NULL;
 
-void rgw_log_usage_init(CephContext *cct, RGWRados *store)
+void rgw_log_usage_init(CephContext *cct, rgw::sal::Store* store)
 {
   usage_logger = new UsageLogger(cct, store);
 }
@@ -206,7 +209,7 @@ static void log_usage(struct req_state *s, const string& op_name)
   if (!bucket_name.empty()) {
   bucket_name = s->bucket_name;
     user = s->bucket_owner.get_id();
-    if (!rgw::sal::RGWBucket::empty(s->bucket.get()) &&
+    if (!rgw::sal::Bucket::empty(s->bucket.get()) &&
 	s->bucket->get_info().requester_pays) {
       payer = s->user->get_id();
     }
@@ -469,7 +472,7 @@ int OpsLogSocket::log_json(struct req_state* s, bufferlist& bl)
   return 0;
 }
 
-OpsLogRados::OpsLogRados(RGWRados* store): store(store)
+OpsLogRados::OpsLogRados(rgw::sal::Store* const& store): store(store)
 {
 }
 
@@ -487,23 +490,13 @@ int OpsLogRados::log(struct req_state* s, struct rgw_log_entry& entry)
     gmtime_r(&t, &bdt);
   else
     localtime_r(&t, &bdt);
-
   string oid = render_log_object_name(s->cct->_conf->rgw_log_object_name, &bdt,
                                       entry.bucket_id, entry.bucket);
-  rgw_raw_obj obj(store->svc.zone->get_zone_params().log_pool, oid);
-  int ret = store->append_async(s, obj, bl.length(), bl);
-  if (ret == -ENOENT) {
-      ret = store->create_pool(s, store->svc.zone->get_zone_params().log_pool);
-      if (ret < 0)
-          goto done;
-      // retry
-      ret = store->append_async(s, obj, bl.length(), bl);
+  if (store->log_op(s, oid, bl) < 0) {
+    ldpp_dout(s, 0) << "ERROR: failed to log RADOS RGW ops log entry for txn: " << s->trans_id << dendl;
+    return -1;
   }
-done:
-  if (ret < 0) {
-      ldpp_dout(s, 0) << "ERROR: failed to log RADOS RGW ops log entry for txn: " << s->trans_id << dendl;
-  }
-  return ret;
+  return 0;
 }
 
 int rgw_log_op(RGWREST* const rest, struct req_state *s, const string& op_name, OpsLogSink *olog)
@@ -518,32 +511,33 @@ int rgw_log_op(RGWREST* const rest, struct req_state *s, const string& op_name, 
     return 0;
 
   if (s->bucket_name.empty()) {
-    ldpp_dout(s, 5) << "nothing to log for operation" << dendl;
-    return -EINVAL;
-  }
-  if (s->err.ret == -ERR_NO_SUCH_BUCKET || rgw::sal::RGWBucket::empty(s->bucket.get())) {
-    if (!s->cct->_conf->rgw_log_nonexistent_bucket) {
-      ldpp_dout(s, 5) << "bucket " << s->bucket_name << " doesn't exist, not logging" << dendl;
+    /* this case is needed for, e.g., list_buckets */
+  } else {
+    if (s->err.ret == -ERR_NO_SUCH_BUCKET ||
+	rgw::sal::Bucket::empty(s->bucket.get())) {
+      if (!s->cct->_conf->rgw_log_nonexistent_bucket) {
+	ldout(s->cct, 5) << "bucket " << s->bucket_name << " doesn't exist, not logging" << dendl;
+	return 0;
+      }
+      bucket_id = "";
+    } else {
+      bucket_id = s->bucket->get_bucket_id();
+    }
+    entry.bucket = rgw_make_bucket_entry_name(s->bucket_tenant, s->bucket_name);
+
+    if (check_utf8(entry.bucket.c_str(), entry.bucket.size()) != 0) {
+      ldpp_dout(s, 5) << "not logging op on bucket with non-utf8 name" << dendl;
       return 0;
     }
-    bucket_id = "";
-  } else {
-    bucket_id = s->bucket->get_bucket_id();
-  }
-  entry.bucket = rgw_make_bucket_entry_name(s->bucket_tenant, s->bucket_name);
 
-  if (check_utf8(entry.bucket.c_str(), entry.bucket.size()) != 0) {
-    ldpp_dout(s, 5) << "not logging op on bucket with non-utf8 name" << dendl;
-    return 0;
-  }
+    if (!rgw::sal::Object::empty(s->object.get())) {
+      entry.obj = s->object->get_key();
+    } else {
+      entry.obj = rgw_obj_key("-");
+    }
 
-  if (!rgw::sal::RGWObject::empty(s->object.get())) {
-    entry.obj = s->object->get_key();
-  } else {
-    entry.obj = rgw_obj_key("-");
-  }
-
-  entry.obj_size = s->obj_size;
+    entry.obj_size = s->obj_size;
+  } /* !bucket empty */
 
   if (s->cct->_conf->rgw_remote_addr_param.length())
     set_param_str(s, s->cct->_conf->rgw_remote_addr_param.c_str(),
@@ -634,3 +628,52 @@ int rgw_log_op(RGWREST* const rest, struct req_state *s, const string& op_name, 
   }
   return 0;
 }
+
+void rgw_log_entry::generate_test_instances(list<rgw_log_entry*>& o)
+{
+  rgw_log_entry *e = new rgw_log_entry;
+  e->object_owner = "object_owner";
+  e->bucket_owner = "bucket_owner";
+  e->bucket = "bucket";
+  e->remote_addr = "1.2.3.4";
+  e->user = "user";
+  e->obj = rgw_obj_key("obj");
+  e->uri = "http://uri/bucket/obj";
+  e->http_status = "200";
+  e->error_code = "error_code";
+  e->bytes_sent = 1024;
+  e->bytes_received = 512;
+  e->obj_size = 2048;
+  e->user_agent = "user_agent";
+  e->referrer = "referrer";
+  e->bucket_id = "10";
+  e->trans_id = "trans_id";
+  e->identity_type = TYPE_RGW;
+  o.push_back(e);
+  o.push_back(new rgw_log_entry);
+}
+
+void rgw_log_entry::dump(Formatter *f) const
+{
+  f->dump_string("object_owner", object_owner.to_str());
+  f->dump_string("bucket_owner", bucket_owner.to_str());
+  f->dump_string("bucket", bucket);
+  f->dump_stream("time") << time;
+  f->dump_string("remote_addr", remote_addr);
+  f->dump_string("user", user);
+  f->dump_stream("obj") << obj;
+  f->dump_string("op", op);
+  f->dump_string("uri", uri);
+  f->dump_string("http_status", http_status);
+  f->dump_string("error_code", error_code);
+  f->dump_unsigned("bytes_sent", bytes_sent);
+  f->dump_unsigned("bytes_received", bytes_received);
+  f->dump_unsigned("obj_size", obj_size);
+  f->dump_stream("total_time") << total_time;
+  f->dump_string("user_agent", user_agent);
+  f->dump_string("referrer", referrer);
+  f->dump_string("bucket_id", bucket_id);
+  f->dump_string("trans_id", trans_id);
+  f->dump_unsigned("identity_type", identity_type);
+}
+

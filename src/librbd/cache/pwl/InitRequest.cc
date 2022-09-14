@@ -85,8 +85,8 @@ void InitRequest<I>::get_image_cache_state() {
     return;
   }
 
-  auto mode = cache_state->get_image_cache_mode();
-  switch (mode) {
+  auto cache_type = cache_state->get_image_cache_type();
+  switch(cache_type) {
     #ifdef WITH_RBD_RWL
     case cache::IMAGE_CACHE_TYPE_RWL:
       m_image_cache =

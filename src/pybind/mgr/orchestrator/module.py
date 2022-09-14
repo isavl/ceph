@@ -9,8 +9,9 @@ import yaml
 from prettytable import PrettyTable
 
 from ceph.deployment.inventory import Device
-from ceph.deployment.drive_group import DriveGroupSpec, DeviceSelection
-from ceph.deployment.service_spec import PlacementSpec, ServiceSpec, service_spec_allow_invalid_from_json
+from ceph.deployment.drive_group import DriveGroupSpec, DeviceSelection, OSDMethod
+from ceph.deployment.service_spec import PlacementSpec, ServiceSpec, service_spec_allow_invalid_from_json, \
+    SNMPGatewaySpec
 from ceph.deployment.hostspec import SpecValidationError
 from ceph.utils import datetime_now
 
@@ -22,7 +23,7 @@ from ._interface import OrchestratorClientMixin, DeviceLightLoc, _cli_read_comma
     NoOrchestrator, OrchestratorValidationError, NFSServiceSpec, \
     RGWSpec, InventoryFilter, InventoryHost, HostSpec, CLICommandMeta, \
     ServiceDescription, DaemonDescription, IscsiServiceSpec, json_to_generic_spec, \
-    GenericSpec, DaemonDescriptionStatus, SNMPGatewaySpec, MDSSpec
+    GenericSpec, DaemonDescriptionStatus
 
 
 def nice_delta(now: datetime.datetime, t: Optional[datetime.datetime], suffix: str = '') -> str:
@@ -43,8 +44,6 @@ class Format(enum.Enum):
     json = 'json'
     json_pretty = 'json-pretty'
     yaml = 'yaml'
-    xml_pretty = 'xml-pretty'
-    xml = 'xml'
 
 
 class ServiceType(enum.Enum):
@@ -61,7 +60,6 @@ class ServiceType(enum.Enum):
     rgw = 'rgw'
     nfs = 'nfs'
     iscsi = 'iscsi'
-    cephadm_exporter = 'cephadm-exporter'
     snmp_gateway = 'snmp-gateway'
 
 
@@ -117,8 +115,6 @@ def to_format(what: Any, format: Format, many: bool, cls: Any) -> Any:
         if many:
             return yaml.dump_all(to_yaml(copy), default_flow_style=False)
         return yaml.dump(to_yaml(copy), default_flow_style=False)
-    elif format == Format.xml or format == Format.xml_pretty:
-        raise OrchestratorError(f"format '{format.name}' is not implemented.")
     else:
         raise OrchestratorError(f'unsupported format type: {format}')
 
@@ -361,9 +357,9 @@ class OrchestratorCli(OrchestratorClientMixin, MgrModule,
         return HandleCommandResult(stdout=completion.result_str())
 
     @_cli_write_command('orch host drain')
-    def _drain_host(self, hostname: str, force: bool = False) -> HandleCommandResult:
+    def _drain_host(self, hostname: str) -> HandleCommandResult:
         """drain all daemons from a host"""
-        completion = self.drain_host(hostname, force)
+        completion = self.drain_host(hostname)
         raise_if_exception(completion)
         return HandleCommandResult(stdout=completion.result_str())
 
@@ -421,9 +417,9 @@ class OrchestratorCli(OrchestratorClientMixin, MgrModule,
         return HandleCommandResult(stdout=completion.result_str())
 
     @_cli_write_command('orch host label rm')
-    def _host_label_rm(self, hostname: str, label: str, force: bool = False) -> HandleCommandResult:
+    def _host_label_rm(self, hostname: str, label: str) -> HandleCommandResult:
         """Remove a host label"""
-        completion = self.remove_host_label(hostname, label, force)
+        completion = self.remove_host_label(hostname, label)
         raise_if_exception(completion)
         return HandleCommandResult(stdout=completion.result_str())
 
@@ -496,18 +492,17 @@ class OrchestratorCli(OrchestratorClientMixin, MgrModule,
                 table = PrettyTable(
                     ['HOST', 'PATH', 'TYPE', 'TRANSPORT', 'RPM', 'DEVICE ID', 'SIZE',
                      'HEALTH', 'IDENT', 'FAULT',
-                     'AVAILABLE', 'REFRESHED', 'REJECT REASONS'],
+                     'AVAILABLE', 'REJECT REASONS'],
                     border=False)
             else:
                 table = PrettyTable(
                     ['HOST', 'PATH', 'TYPE', 'DEVICE ID', 'SIZE',
-                     'AVAILABLE', 'REFRESHED', 'REJECT REASONS'],
+                     'AVAILABLE', 'REJECT REASONS'],
                     border=False)
             table.align = 'l'
             table._align['SIZE'] = 'r'
             table.left_padding_width = 0
             table.right_padding_width = 2
-            now = datetime_now()
             for host_ in sorted(inv_hosts, key=lambda h: h.name):  # type: InventoryHost
                 for d in sorted(host_.devices.devices, key=lambda d: d.path):  # type: Device
 
@@ -531,7 +526,6 @@ class OrchestratorCli(OrchestratorClientMixin, MgrModule,
                                 display_map[led_ident],
                                 display_map[led_fail],
                                 display_map[d.available],
-                                nice_delta(now, d.created, ' ago'),
                                 ', '.join(d.rejected_reasons)
                             )
                         )
@@ -544,7 +538,6 @@ class OrchestratorCli(OrchestratorClientMixin, MgrModule,
                                 d.device_id,
                                 format_dimless(d.sys_api.get('size', 0), 5),
                                 display_map[d.available],
-                                nice_delta(now, d.created, ' ago'),
                                 ', '.join(d.rejected_reasons)
                             )
                         )
@@ -644,6 +637,7 @@ class OrchestratorCli(OrchestratorClientMixin, MgrModule,
     @_cli_read_command('orch ps')
     def _list_daemons(self,
                       hostname: Optional[str] = None,
+                      _end_positional_: int = 0,
                       service_name: Optional[str] = None,
                       daemon_type: Optional[str] = None,
                       daemon_id: Optional[str] = None,
@@ -777,8 +771,10 @@ class OrchestratorCli(OrchestratorClientMixin, MgrModule,
         return HandleCommandResult(-errno.EINVAL, stderr='--all-available-devices is required')
 
     @_cli_write_command('orch daemon add osd')
-    def _daemon_add_osd(self, svc_arg: Optional[str] = None) -> HandleCommandResult:
-        """Create an OSD service. Either --svc_arg=host:drives"""
+    def _daemon_add_osd(self,
+                        svc_arg: Optional[str] = None,
+                        method: Optional[OSDMethod] = None) -> HandleCommandResult:
+        """Create OSD daemon(s) on specified host and device(s) (e.g., ceph orch daemon add osd myhost:/dev/sdb)"""
         # Create one or more OSDs"""
 
         usage = """
@@ -794,9 +790,10 @@ Usage:
             drive_group = DriveGroupSpec(
                 placement=PlacementSpec(host_pattern=host_name),
                 data_devices=devs,
+                method=method,
             )
         except (TypeError, KeyError, ValueError) as e:
-            msg = f"Invalid 'host:device' spec: '{svc_arg}': {e}" + usage
+            msg = f"Invalid host:device spec: '{svc_arg}': {e}" + usage
             return HandleCommandResult(-errno.EINVAL, stderr=msg)
 
         completion = self.create_osds(drive_group)
@@ -896,6 +893,7 @@ Usage:
     def _rgw_add(self,
                  svc_id: str,
                  placement: Optional[str] = None,
+                 _end_positional_: int = 0,
                  port: Optional[int] = None,
                  ssl: bool = False,
                  inbuf: Optional[str] = None) -> HandleCommandResult:
@@ -1070,21 +1068,19 @@ Usage:
         if inbuf:
             raise OrchestratorValidationError('unrecognized command -i; -h or --help for usage')
 
-        spec = MDSSpec(
+        spec = ServiceSpec(
             service_type='mds',
             service_id=fs_name,
             placement=PlacementSpec.from_string(placement),
             unmanaged=unmanaged,
             preview_only=dry_run)
-
-        spec.validate()  # force any validation exceptions to be caught correctly
-
         return self._apply_misc([spec], dry_run, format, no_overwrite)
 
     @_cli_write_command('orch apply rgw')
     def _apply_rgw(self,
                    svc_id: str,
                    placement: Optional[str] = None,
+                   _end_positional_: int = 0,
                    realm: Optional[str] = None,
                    zone: Optional[str] = None,
                    port: Optional[int] = None,
@@ -1116,8 +1112,6 @@ Usage:
             preview_only=dry_run
         )
 
-        spec.validate()  # force any validation exceptions to be caught correctly
-
         return self._apply_misc([spec], dry_run, format, no_overwrite)
 
     @_cli_write_command('orch apply nfs')
@@ -1141,8 +1135,6 @@ Usage:
             unmanaged=unmanaged,
             preview_only=dry_run
         )
-
-        spec.validate()  # force any validation exceptions to be caught correctly
 
         return self._apply_misc([spec], dry_run, format, no_overwrite)
 
@@ -1172,8 +1164,6 @@ Usage:
             unmanaged=unmanaged,
             preview_only=dry_run
         )
-
-        spec.validate()  # force any validation exceptions to be caught correctly
 
         return self._apply_misc([spec], dry_run, format, no_overwrite)
 
@@ -1393,6 +1383,7 @@ Usage:
     @_cli_write_command('orch upgrade start')
     def _upgrade_start(self,
                        image: Optional[str] = None,
+                       _end_positional_: int = 0,
                        ceph_version: Optional[str] = None) -> HandleCommandResult:
         """Initiate upgrade"""
         self._upgrade_check_image_name(image, ceph_version)

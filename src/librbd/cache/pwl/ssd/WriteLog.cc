@@ -30,6 +30,7 @@ namespace cache {
 namespace pwl {
 namespace ssd {
 
+using namespace std;
 using namespace librbd::cache::pwl;
 
 static bool is_valid_pool_root(const WriteLogPoolRoot& root) {
@@ -73,7 +74,7 @@ void WriteLog<I>::collect_read_extents(
   // Make a bl for this hit extent. This will add references to the
   // write_entry->cache_bl */
   ldout(m_image_ctx.cct, 5) << dendl;
-  auto write_entry = static_pointer_cast<WriteLogEntry>(map_entry.log_entry);
+  auto write_entry = std::static_pointer_cast<WriteLogEntry>(map_entry.log_entry);
   buffer::list hit_bl;
   write_entry->copy_cache_bl(&hit_bl);
   bool writesame = write_entry->is_writesame_entry();
@@ -196,7 +197,7 @@ bool WriteLog<I>::initialize_pool(Context *on_finish,
       return false;
     }
   } else {
-    ceph_assert(m_cache_state->present);
+    m_cache_state->present = true;
     r = create_and_open_bdev();
     if (r < 0) {
       on_finish->complete(r);
@@ -208,8 +209,8 @@ bool WriteLog<I>::initialize_pool(Context *on_finish,
     ::IOContext ioctx(cct, nullptr);
     r = bdev->read(0, MIN_WRITE_ALLOC_SSD_SIZE, &bl, &ioctx, false);
     if (r < 0) {
-      lderr(cct) << "Read ssd cache superblock failed " << dendl;
-      goto error_handle;
+      lderr(cct) << "read ssd cache superblock failed " << dendl;
+      goto err_close_bdev;
     }
     auto p = bl.cbegin();
     decode(superblock, p);
@@ -221,17 +222,17 @@ bool WriteLog<I>::initialize_pool(Context *on_finish,
                   << dendl;
     ceph_assert(is_valid_pool_root(pool_root));
     if (pool_root.layout_version != SSD_LAYOUT_VERSION) {
-      lderr(cct) << "Pool layout version is "
+      lderr(cct) << "pool layout version is "
                  << pool_root.layout_version
                  << " expected " << SSD_LAYOUT_VERSION
                  << dendl;
-      goto error_handle;
+      goto err_close_bdev;
     }
     if (pool_root.block_size != MIN_WRITE_ALLOC_SSD_SIZE) {
-      lderr(cct) << "Pool block size is " << pool_root.block_size
+      lderr(cct) << "pool block size is " << pool_root.block_size
                  << " expected " << MIN_WRITE_ALLOC_SSD_SIZE
                  << dendl;
-      goto error_handle;
+      goto err_close_bdev;
     }
 
     this->m_log_pool_size = pool_root.pool_size;
@@ -248,7 +249,7 @@ bool WriteLog<I>::initialize_pool(Context *on_finish,
   }
   return true;
 
-error_handle:
+err_close_bdev:
   bdev->close();
   delete bdev;
   on_finish->complete(-EINVAL);
@@ -270,6 +271,8 @@ void WriteLog<I>::remove_pool_file() {
       lderr(m_image_ctx.cct) << "failed to remove empty pool \""
                              << this->m_log_pool_name << "\": " << dendl;
     } else {
+      m_cache_state->clean = true;
+      m_cache_state->empty = true;
       m_cache_state->present = false;
     }
   } else {
@@ -380,10 +383,11 @@ void WriteLog<I>::enlist_op_appender() {
   this->m_async_append_ops++;
   this->m_async_op_tracker.start_op();
   Context *append_ctx = new LambdaContext([this](int r) {
-      append_scheduled_ops();
-      });
+    append_scheduled_ops();
+  });
   this->m_work_queue.queue(append_ctx);
 }
+
 /*
  * Takes custody of ops. They'll all get their log entries appended,
  * and have their on_write_persist contexts completed once they and
@@ -442,8 +446,8 @@ void WriteLog<I>::append_scheduled_ops(void) {
   GenericLogOperations ops;
   ldout(m_image_ctx.cct, 20) << dendl;
 
-  bool ops_remain = false; //no-op variable for SSD
-  bool appending = false; //no-op variable for SSD
+  bool ops_remain = false;  // unused, no-op variable for SSD
+  bool appending = false;   // unused, no-op variable for SSD
   this->append_scheduled(ops, ops_remain, appending);
 
   if (ops.size()) {
@@ -491,7 +495,7 @@ void WriteLog<I>::append_op_log_entries(GenericLogOperations &ops) {
   });
   uint64_t *new_first_free_entry = new(uint64_t);
   Context *append_ctx = new LambdaContext(
-      [this, new_first_free_entry, ops, ctx](int r) {
+    [this, new_first_free_entry, ops, ctx](int r) {
       std::shared_ptr<WriteLogPoolRoot> new_root;
       {
         ldout(m_image_ctx.cct, 20) << "Finished appending at "
@@ -536,10 +540,6 @@ void WriteLog<I>::alloc_op_log_entries(GenericLogOperations &ops) {
     log_entry->ram_entry.entry_valid = 1;
     m_log_entries.push_back(log_entry);
     ldout(m_image_ctx.cct, 20) << "operation=[" << *operation << "]" << dendl;
-  }
-  if (m_cache_state->empty && !m_log_entries.empty()) {
-    m_cache_state->empty = false;
-    this->update_image_cache_state();
   }
 }
 
@@ -813,18 +813,14 @@ bool WriteLog<I>::retire_entries(const unsigned long int frees_per_tx) {
           this->m_bytes_allocated -= allocated_bytes;
           ceph_assert(this->m_bytes_cached >= cached_bytes);
           this->m_bytes_cached -= cached_bytes;
-          if (!m_cache_state->empty && m_log_entries.empty()) {
-            m_cache_state->empty = true;
-            this->update_image_cache_state();
-          }
 
           ldout(m_image_ctx.cct, 20)
-            << "Finished root update: " << "initial_first_valid_entry="
-            << initial_first_valid_entry << ", " << "m_first_valid_entry="
-            << m_first_valid_entry << "," << "release space = "
-            << allocated_bytes << "," << "m_bytes_allocated="
-            << m_bytes_allocated << "," << "release cached space="
-            << cached_bytes << "," << "m_bytes_cached="
+            << "Finished root update: initial_first_valid_entry="
+            << initial_first_valid_entry << ", m_first_valid_entry="
+            << m_first_valid_entry << ", release space = "
+            << allocated_bytes << ", m_bytes_allocated="
+            << m_bytes_allocated << ", release cached space="
+            << cached_bytes << ", m_bytes_cached="
             << this->m_bytes_cached << dendl;
 
           this->m_alloc_failed_since_retire = false;
@@ -1030,7 +1026,7 @@ void WriteLog<I>::update_root_scheduled_ops() {
   });
   Context *append_ctx = new LambdaContext([this, ctx](int r) {
     ldout(m_image_ctx.cct, 15) << "Finish the update of pool root." << dendl;
-    bool need_finisher = false;;
+    bool need_finisher = false;
     assert(r == 0);
     {
       std::lock_guard locker(m_lock);
@@ -1099,7 +1095,7 @@ void WriteLog<I>::aio_read_data_blocks(
         bls[i]->append(valid_data_bl);
         write_entry->dec_bl_refs();
       }
-     ctx->complete(r);
+      ctx->complete(r);
     });
 
   CephContext *cct = m_image_ctx.cct;

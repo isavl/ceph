@@ -76,6 +76,9 @@
 #define dout_subsys ceph_subsys_mds
 #undef dout_prefix
 #define dout_prefix _prefix(_dout, mds)
+
+using namespace std;
+
 static ostream& _prefix(std::ostream *_dout, MDSRank *mds) {
   return *_dout << "mds." << mds->get_nodeid() << ".cache ";
 }
@@ -154,6 +157,8 @@ MDCache::MDCache(MDSRank *m, PurgeQueue &purge_queue_) :
   export_ephemeral_random_config =  g_conf().get_val<bool>("mds_export_ephemeral_random");
   export_ephemeral_random_max = g_conf().get_val<double>("mds_export_ephemeral_random_max");
 
+  symlink_recovery = g_conf().get_val<bool>("mds_symlink_recovery");
+
   lru.lru_set_midpoint(g_conf().get_val<double>("mds_cache_mid"));
 
   bottom_lru.lru_set_midpoint(0);
@@ -209,6 +214,10 @@ void MDCache::handle_conf_change(const std::set<std::string>& changed, const MDS
     lru.lru_set_midpoint(g_conf().get_val<double>("mds_cache_mid"));
   if (changed.count("mds_cache_trim_decay_rate")) {
     trim_counter = DecayCounter(g_conf().get_val<double>("mds_cache_trim_decay_rate"));
+  }
+  if (changed.count("mds_symlink_recovery")) {
+    symlink_recovery = g_conf().get_val<bool>("mds_symlink_recovery");
+    dout(10) << "Storing symlink targets on file object's head " << symlink_recovery << dendl;
   }
 
   migrator->handle_conf_change(changed, mdsmap);
@@ -3732,9 +3741,8 @@ bool MDCache::expire_recursive(CInode *in, expiremap &expiremap)
       return true;
     }
 
-    for (auto it = subdir->items.begin(); it != subdir->items.end();) {
-      CDentry *dn = it->second;
-      it++;
+    for (auto &it : subdir->items) {
+      CDentry *dn = it.second;
       CDentry::linkage_t *dnl = dn->get_linkage();
       if (dnl->is_primary()) {
 	CInode *tin = dnl->get_inode();
@@ -6589,10 +6597,10 @@ public:
 			       LogSegment *_ls, version_t iv)
     : MDCacheLogContext(m), inos(_inos), ls(_ls), inotablev(iv) {}
   void finish(int r) override {
-    assert(r == 0);
+    ceph_assert(r == 0);
     if (inotablev) {
       get_mds()->inotable->apply_release_ids(inos);
-      assert(get_mds()->inotable->get_version() == inotablev);
+      ceph_assert(get_mds()->inotable->get_version() == inotablev);
     }
     ls->purge_inodes_finish(inos);
   }
@@ -6614,10 +6622,10 @@ void MDCache::purge_inodes(const interval_set<inodeno_t>& inos, LogSegment *ls)
   // FIXME: handle non-default data pool and namespace
 
   auto cb = new LambdaContext([this, inos, ls](int r){
-      assert(r == 0 || r == -2);
+      ceph_assert(r == 0 || r == -2);
       mds->inotable->project_release_ids(inos);
       version_t piv = mds->inotable->get_projected_version();
-      assert(piv != 0);
+      ceph_assert(piv != 0);
       mds->mdlog->start_submit_entry(new EPurged(inos, ls->seq, piv),
 				     new C_MDS_purge_completed_finish(this, inos, ls, piv));
       mds->mdlog->flush();
@@ -6798,7 +6806,7 @@ std::pair<bool, uint64_t> MDCache::trim(uint64_t count)
       em.first->second = make_message<MCacheExpire>(mds->get_nodeid());
     }
 
-    dout(20) << __func__ << ": try expiring " << *mdsdir_in << " for stopping mds." << mds <<  dendl;
+    dout(20) << __func__ << ": try expiring " << *mdsdir_in << " for stopping mds." << mds->get_nodeid() <<  dendl;
 
     const bool aborted = expire_recursive(mdsdir_in, expiremap);
     if (!aborted) {
@@ -12523,21 +12531,21 @@ void MDCache::dump_tree(CInode *in, const int cur_depth, const int max_depth, Fo
   f->close_section();
 }
 
-int MDCache::dump_cache(std::string_view file_name)
+int MDCache::dump_cache(std::string_view file_name, double timeout)
 {
-  return dump_cache(file_name, NULL);
+  return dump_cache(file_name, NULL, timeout);
 }
 
-int MDCache::dump_cache(Formatter *f)
+int MDCache::dump_cache(Formatter *f, double timeout)
 {
-  return dump_cache(std::string_view(""), f);
+  return dump_cache(std::string_view(""), f, timeout);
 }
 
 /**
  * Dump the metadata cache, either to a Formatter, if
  * provided, else to a plain text file.
  */
-int MDCache::dump_cache(std::string_view fn, Formatter *f)
+int MDCache::dump_cache(std::string_view fn, Formatter *f, double timeout)
 {
   int r = 0;
 
@@ -12623,22 +12631,50 @@ int MDCache::dump_cache(std::string_view fn, Formatter *f)
     return 1;
   };
 
+  auto start = mono_clock::now();
+  int64_t count = 0;
   for (auto &p : inode_map) {
     r = dump_func(p.second);
     if (r < 0)
       goto out;
+    if (!(++count % 1000) &&
+	timeout > 0 &&
+	std::chrono::duration<double>(mono_clock::now() - start).count() > timeout) {
+      r = -ETIMEDOUT;
+      goto out;
+    }
   }
   for (auto &p : snap_inode_map) {
     r = dump_func(p.second);
     if (r < 0)
       goto out;
+    if (!(++count % 1000) &&
+		timeout > 0 &&
+	std::chrono::duration<double>(mono_clock::now() - start).count() > timeout) {
+      r = -ETIMEDOUT;
+      goto out;
+    }
+
   }
   r = 0;
 
  out:
   if (f) {
+    if (r == -ETIMEDOUT)
+    {
+      f->close_section();
+      f->open_object_section("result");
+      f->dump_string("error", "the operation timeout");
+    }
     f->close_section();  // inodes
   } else {
+    if (r == -ETIMEDOUT)
+    {
+      CachedStackStringStream css;
+      *css << "error : the operation timeout" << std::endl;
+      auto sv = css->strv();
+      r = safe_write(fd, sv.data(), sv.size());
+    }
     ::close(fd);
   }
   return r;

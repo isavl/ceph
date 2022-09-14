@@ -20,8 +20,10 @@ local u = import 'utils.libsonnet';
         .addTargets(
           [
             u.addTargetSchema(expr1,
+                              1,
+                              'time_series',
                               '{{pool}} Write'),
-            u.addTargetSchema(expr2, '{{pool}} Read'),
+            u.addTargetSchema(expr2, 1, 'time_series', '{{pool}} Read'),
           ]
         ) + { gridPos: { x: x, y: y, w: w, h: h } };
 
@@ -149,8 +151,12 @@ local u = import 'utils.libsonnet';
         .addTargets(
           [
             u.addTargetSchema(expr1,
+                              1,
+                              'time_series',
                               legendFormat1),
             u.addTargetSchema(expr2,
+                              1,
+                              'time_series',
                               legendFormat2),
           ]
         ) + { gridPos: { x: x, y: y, w: w, h: h } };
@@ -251,10 +257,9 @@ local u = import 'utils.libsonnet';
         .addTarget(
           u.addTargetSchema(
             'topk(10, (sort((irate(ceph_rbd_write_ops[30s]) + on (image, pool, namespace) irate(ceph_rbd_read_ops[30s])))))',
-            '',
-            'table',
             1,
-            true
+            'table',
+            ''
           )
         ) + { gridPos: { x: 0, y: 7, w: 8, h: 7 } },
         u.addTableSchema(
@@ -273,10 +278,9 @@ local u = import 'utils.libsonnet';
         .addTarget(
           u.addTargetSchema(
             'topk(10, sort(sum(irate(ceph_rbd_read_bytes[30s]) + irate(ceph_rbd_write_bytes[30s])) by (pool, image, namespace)))',
-            '',
-            'table',
             1,
-            true
+            'table',
+            ''
           )
         ) + { gridPos: { x: 8, y: 7, w: 8, h: 7 } },
         u.addTableSchema(
@@ -295,10 +299,9 @@ local u = import 'utils.libsonnet';
         .addTarget(
           u.addTargetSchema(
             'topk(10,\n  sum(\n    irate(ceph_rbd_write_latency_sum[30s]) / clamp_min(irate(ceph_rbd_write_latency_count[30s]), 1) +\n    irate(ceph_rbd_read_latency_sum[30s]) / clamp_min(irate(ceph_rbd_read_latency_count[30s]), 1)\n  ) by (pool, image, namespace)\n)',
-            '',
-            'table',
             1,
-            true
+            'table',
+            ''
           )
         ) + { gridPos: { x: 16, y: 7, w: 8, h: 7 } },
       ]),

@@ -6,6 +6,7 @@
 #include "rgw/rgw_sal_rados.h"
 #include "rgw/rgw_lua_request.h"
 
+using namespace std;
 using namespace rgw;
 using boost::container::flat_set;
 using rgw::auth::Identity;
@@ -65,21 +66,59 @@ public:
   }
 };
 
-class TestRGWUser : public sal::RGWUser {
+class TestUser : public sal::User {
 public:
-  virtual int list_buckets(const DoutPrefixProvider *dpp, const string&, const string&, uint64_t, bool, sal::RGWBucketList&, optional_yield y) override {
+  virtual std::unique_ptr<User> clone() override {
+    return std::unique_ptr<User>(new TestUser(*this));
+  }
+
+  virtual int list_buckets(const DoutPrefixProvider *dpp, const string&, const string&, uint64_t, bool, sal::BucketList&, optional_yield y) override {
     return 0;
   }
 
-  virtual sal::RGWBucket* create_bucket(rgw_bucket& bucket, ceph::real_time creation_time) override {
-    return nullptr;
-  }
-
-  virtual int load_by_id(const DoutPrefixProvider *dpp, optional_yield y) override {
+  virtual int create_bucket(const DoutPrefixProvider* dpp, const rgw_bucket& b, const std::string& zonegroup_id, rgw_placement_rule& placement_rule, std::string& swift_ver_location, const RGWQuotaInfo* pquota_info, const RGWAccessControlPolicy& policy, sal::Attrs& attrs, RGWBucketInfo& info, obj_version& ep_objv, bool exclusive, bool obj_lock_enabled, bool* existed, req_info& req_info, std::unique_ptr<sal::Bucket>* bucket, optional_yield y) override {
     return 0;
   }
 
-  virtual ~TestRGWUser() = default;
+  virtual int read_attrs(const DoutPrefixProvider *dpp, optional_yield y) override {
+    return 0;
+  }
+
+  virtual int read_stats(const DoutPrefixProvider *dpp, optional_yield y, RGWStorageStats* stats, ceph::real_time *last_stats_sync, ceph::real_time *last_stats_update) override {
+    return 0;
+  }
+
+  virtual int read_stats_async(const DoutPrefixProvider *dpp, RGWGetUserStats_CB *cb) override {
+    return 0;
+  }
+
+  virtual int complete_flush_stats(const DoutPrefixProvider *dpp, optional_yield y) override {
+    return 0;
+  }
+
+  virtual int read_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch, uint32_t max_entries, bool *is_truncated, RGWUsageIter& usage_iter, map<rgw_user_bucket, rgw_usage_log_entry>& usage) override {
+    return 0;
+  }
+
+  virtual int trim_usage(const DoutPrefixProvider *dpp, uint64_t start_epoch, uint64_t end_epoch) override {
+    return 0;
+  }
+
+  virtual int load_user(const DoutPrefixProvider *dpp, optional_yield y) override {
+    return 0;
+  }
+
+  virtual int store_user(const DoutPrefixProvider* dpp, optional_yield y, bool exclusive, RGWUserInfo* old_info) override {
+    return 0;
+  }
+
+  virtual int remove_user(const DoutPrefixProvider* dpp, optional_yield y) override {
+    return 0;
+  }
+  virtual int merge_and_store_attrs(const DoutPrefixProvider *dpp, rgw::sal::Attrs& attrs, optional_yield y) override {
+    return 0;
+  }
+  virtual ~TestUser() = default;
 };
 
 class TestAccounter : public io::Accounter, public io::BasicClient {
@@ -295,7 +334,7 @@ TEST(TestRGWLua, Bucket)
   b.name = "myname";
   b.marker = "mymarker";
   b.bucket_id = "myid"; 
-  s.bucket.reset(new sal::RGWRadosBucket(nullptr, b));
+  s.bucket.reset(new sal::RadosBucket(nullptr, b));
 
   const auto rc = lua::request::execute(nullptr, nullptr, nullptr, &s, "put_obj", script);
   ASSERT_EQ(rc, 0);
@@ -338,10 +377,9 @@ TEST(TestRGWLua, Environment)
   )";
 
   DEFINE_REQ_STATE;
-  s.env[""] = "world";
-  s.env[""] = "bar";
-  s.env["goodbye"] = "cruel world";
-  s.env["ka"] = "boom";
+  s.env.emplace("", "bar");
+  s.env.emplace("goodbye", "cruel world");
+  s.env.emplace("ka", "boom");
 
   const auto rc = lua::request::execute(nullptr, nullptr, nullptr, &s, "put_obj", script);
   ASSERT_EQ(rc, 0);
@@ -458,6 +496,26 @@ TEST(TestRGWLua, Acl)
   ASSERT_EQ(rc, 0);
 }
 
+TEST(TestRGWLua, User)
+{
+  const std::string script = R"(
+    assert(Request.User)
+    assert(Request.User.Id == "myid")
+    assert(Request.User.Tenant == "mytenant")
+  )";
+
+  DEFINE_REQ_STATE;
+
+  rgw_user u;
+  u.tenant = "mytenant";
+  u.id = "myid";
+  s.user.reset(new sal::RadosUser(nullptr, u));
+
+  const auto rc = lua::request::execute(nullptr, nullptr, nullptr, &s, "put_obj", script);
+  ASSERT_EQ(rc, 0);
+}
+
+
 TEST(TestRGWLua, UseFunction)
 {
 	const std::string script = R"(
@@ -517,7 +575,7 @@ TEST(TestRGWLua, WithLib)
 
   rgw_bucket b;
   b.name = "my-bucket-name-is-fish";
-  s.bucket.reset(new sal::RGWRadosBucket(nullptr, b));
+  s.bucket.reset(new sal::RadosBucket(nullptr, b));
 
   const auto rc = lua::request::execute(nullptr, nullptr, nullptr, &s, "put_obj", script);
   ASSERT_EQ(rc, 0);
@@ -584,7 +642,7 @@ TEST(TestRGWLua, OpsLog)
 		end
   )";
 
-  auto store = std::unique_ptr<sal::RGWRadosStore>(new sal::RGWRadosStore);
+  auto store = std::unique_ptr<sal::RadosStore>(new sal::RadosStore);
   store->setRados(new RGWRados);
   auto olog = std::unique_ptr<OpsLogSocket>(new OpsLogSocket(cct, 1024));
   ASSERT_TRUE(olog->init(unix_socket_path));
@@ -599,11 +657,11 @@ TEST(TestRGWLua, OpsLog)
   b.name = "name";
   b.marker = "marker";
   b.bucket_id = "id"; 
-  s.bucket.reset(new sal::RGWRadosBucket(nullptr, b));
+  s.bucket.reset(new sal::RadosBucket(nullptr, b));
   s.bucket_name = "name";
 	s.enable_ops_log = true;
 	s.enable_usage_log = false;
-	s.user.reset(new TestRGWUser());
+	s.user.reset(new TestUser());
   TestAccounter ac;
   s.cio = &ac; 
 	s.cct->_conf->rgw_ops_log_rados	= false;

@@ -58,20 +58,16 @@ def volume_exists(mgr, fs_name):
             return True
     return False
 
-def listdir(fs, dirpath, filter_entries=None):
+def listdir(fs, dirpath):
     """
     Get the directory names (only dirs) for a given path
     """
     dirs = []
-    if filter_entries is None:
-        filter_entries = [b".", b".."]
-    else:
-        filter_entries.extend([b".", b".."])
     try:
         with fs.opendir(dirpath) as dir_handle:
             d = fs.readdir(dir_handle)
             while d:
-                if (d.d_name not in filter_entries) and d.is_dir():
+                if (d.d_name not in (b".", b"..")) and d.is_dir():
                     dirs.append(d.d_name)
                 d = fs.readdir(dir_handle)
     except cephfs.Error as e:
@@ -126,7 +122,7 @@ def copy_file(fs, src, dst, mode, cancel_check=None):
     """
     src_fd = dst_fd = None
     try:
-        src_fd = fs.open(src, os.O_RDONLY);
+        src_fd = fs.open(src, os.O_RDONLY)
         dst_fd = fs.open(dst, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, mode)
     except cephfs.Error as e:
         if src_fd is not None:

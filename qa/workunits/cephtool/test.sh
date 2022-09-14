@@ -1157,6 +1157,9 @@ function test_mon_mon()
 {
   # print help message
   ceph --help mon
+  # -h works even when some arguments are passed
+  ceph osd dump -h | grep 'osd dump'
+  ceph osd dump 123 -h | grep 'osd dump'
   # no mon add/remove
   ceph mon dump
   ceph mon getmap -o $TEMP_DIR/monmap.$$
@@ -1500,12 +1503,10 @@ function test_mon_osd()
 	expect_false ceph osd set $f
 	expect_false ceph osd unset $f
   done
-  ceph osd require-osd-release pacific
+  ceph osd require-osd-release quincy
   # can't lower
+  expect_false ceph osd require-osd-release pacific
   expect_false ceph osd require-osd-release octopus
-  expect_false ceph osd require-osd-release nautilus
-  expect_false ceph osd require-osd-release mimic
-  expect_false ceph osd require-osd-release luminous
   # these are no-ops but should succeed.
 
   ceph osd set noup
@@ -1551,7 +1552,13 @@ function test_mon_osd()
   ceph osd info
   info_json=$(ceph osd info --format=json | jq -cM '.')
   dump_json=$(ceph osd dump --format=json | jq -cM '.osds')
-  [[ "${info_json}" == "${dump_json}" ]]
+  if [[ "${info_json}" != "${dump_json}" ]]; then
+    echo "waiting for OSDs to settle"
+    sleep 10
+    info_json=$(ceph osd info --format=json | jq -cM '.')
+    dump_json=$(ceph osd dump --format=json | jq -cM '.osds')
+    [[ "${info_json}" == "${dump_json}" ]]
+  fi
 
   info_json=$(ceph osd info 0 --format=json | jq -cM '.')
   dump_json=$(ceph osd dump --format=json | \
@@ -2184,14 +2191,13 @@ function test_mon_pg()
 function test_mon_osd_pool_set()
 {
   TEST_POOL_GETSET=pool_getset
-  expect_false ceph osd pool create $TEST_POOL_GETSET 1 --target_size_ratio -0.3
-  expect_true ceph osd pool create $TEST_POOL_GETSET 1 --target_size_ratio 1
+  ceph osd pool create $TEST_POOL_GETSET 1
   ceph osd pool application enable $TEST_POOL_GETSET rados
   ceph osd pool set $TEST_POOL_GETSET pg_autoscale_mode off
   wait_for_clean
   ceph osd pool get $TEST_POOL_GETSET all
 
-  for s in pg_num pgp_num size min_size crush_rule target_size_ratio; do
+  for s in pg_num pgp_num size min_size crush_rule; do
     ceph osd pool get $TEST_POOL_GETSET $s
   done
 
@@ -2263,12 +2269,6 @@ function test_mon_osd_pool_set()
   ceph osd pool get $TEST_POOL_GETSET scrub_priority | grep 'scrub_priority: 5'
   ceph osd pool set $TEST_POOL_GETSET scrub_priority 0
   ceph osd pool get $TEST_POOL_GETSET scrub_priority | expect_false grep '.'
-
-  expect_false ceph osd pool set $TEST_POOL_GETSET target_size_ratio -3
-  expect_false ceph osd pool set $TEST_POOL_GETSET target_size_ratio abc
-  expect_true ceph osd pool set $TEST_POOL_GETSET target_size_ratio 0.1
-  expect_true ceph osd pool set $TEST_POOL_GETSET target_size_ratio 1
-  ceph osd pool get $TEST_POOL_GETSET target_size_ratio | grep 'target_size_ratio: 1'
 
   ceph osd pool set $TEST_POOL_GETSET nopgchange 1
   expect_false ceph osd pool set $TEST_POOL_GETSET pg_num 10
@@ -2468,7 +2468,7 @@ function test_mon_osd_erasure_code()
   ceph osd erasure-code-profile set fooprofile a=b c=d e=f --force
   ceph osd erasure-code-profile set fooprofile a=b c=d e=f
   expect_false ceph osd erasure-code-profile set fooprofile a=b c=d e=f g=h
-  # make sure ruleset-foo doesn't work anymore
+  # make sure rule-foo doesn't work anymore
   expect_false ceph osd erasure-code-profile set barprofile ruleset-failure-domain=host
   ceph osd erasure-code-profile set barprofile crush-failure-domain=host
   # clean up

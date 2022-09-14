@@ -133,6 +133,28 @@
                 </div>
               </div>
             </div>
+
+            <!-- Channel perf -->
+            <div class="form-group row">
+              <label class="cd-col-form-label"
+                     for="channel_perf">
+                <ng-container i18n>Perf</ng-container>
+                <cd-helper>
+                  <ng-container i18n>Includes various performance metrics of a cluster.</ng-container>
+                </cd-helper>
+              </label>
+              <div class="cd-col-form-input">
+                <div class="custom-control custom-checkbox">
+                  <input type="checkbox"
+                         class="custom-control-input"
+                         id="channel_perf"
+                         formControlName="channel_perf">
+                  <label class="custom-control-label"
+                         for="channel_perf"></label>
+                </div>
+              </div>
+            </div>
+
             <ng-container *ngIf="showContactInfo">
             <legend>
               <ng-container i18n>Contact Information</ng-container>
@@ -266,7 +288,8 @@
                      for="report"
                      class="cd-col-form-label">Report preview
                 <cd-helper i18n-html
-                           html="The actual telemetry data that will be submitted.">
+                           html="The actual telemetry data that will be submitted."><em>Note: Please select 'Download' to
+                                   view the full report, including metrics from the perf channel.</em>
                 </cd-helper>
               </label>
               <div class="cd-col-form-input">

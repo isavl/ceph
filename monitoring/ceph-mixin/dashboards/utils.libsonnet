@@ -58,12 +58,11 @@ local g = import 'grafonnet/grafana.libsonnet';
                      legend_values=legend_values),
 
 
-  addTargetSchema(expr, legendFormat='', format='time_series', intervalFactor=1, instant=null)::
+  addTargetSchema(expr, intervalFactor, format, legendFormat)::
     g.prometheus.target(expr=expr,
-                        legendFormat=legendFormat,
-                        format=format,
                         intervalFactor=intervalFactor,
-                        instant=instant),
+                        format=format,
+                        legendFormat=legendFormat),
 
   addTemplateSchema(name,
                     datasource,

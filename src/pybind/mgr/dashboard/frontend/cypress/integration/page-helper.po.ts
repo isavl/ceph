@@ -196,16 +196,10 @@ export abstract class PageHelper {
     }
   }
 
-  getTableCell(columnIndex: number, exactContent: string, partialMatch = false) {
+  getTableCell(columnIndex: number, exactContent: string) {
     this.waitDataTableToLoad();
     this.clearTableSearchInput();
     this.searchTable(exactContent);
-    if (partialMatch) {
-      return cy.contains(
-        `datatable-body-row datatable-body-cell:nth-child(${columnIndex})`,
-        exactContent
-      );
-    }
     return cy.contains(
       `datatable-body-row datatable-body-cell:nth-child(${columnIndex})`,
       new RegExp(`^${exactContent}$`)

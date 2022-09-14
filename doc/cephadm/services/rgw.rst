@@ -160,7 +160,7 @@ High availability service for RGW
 =================================
 
 The *ingress* service allows you to create a high availability endpoint
-for RGW with a minumum set of configuration options.  The orchestrator will
+for RGW with a minimum set of configuration options.  The orchestrator will
 deploy and manage a combination of haproxy and keepalived to provide load
 balancing on a floating virtual IP.
 
@@ -291,3 +291,4 @@ Further Reading
 ===============
 
 * :ref:`object-gateway`
+* :ref:`mgr-rgw-module`

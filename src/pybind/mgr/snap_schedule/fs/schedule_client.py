@@ -6,7 +6,7 @@ LGPL2.1.  See file COPYING.
 import cephfs
 import rados
 from contextlib import contextmanager
-from mgr_util import CephfsClient, open_filesystem, CephfsConnectionException
+from mgr_util import CephfsClient, open_filesystem
 from collections import OrderedDict
 from datetime import datetime, timezone
 import logging
@@ -15,9 +15,8 @@ from typing import cast, Any, Callable, Dict, Iterator, List, Set, Optional, \
     Tuple, TypeVar, Union, Type
 from types import TracebackType
 import sqlite3
-from .schedule import Schedule, parse_retention
+from .schedule import Schedule
 import traceback
-import errno
 
 
 MAX_SNAPS_PER_PATH = 50
@@ -32,8 +31,12 @@ SNAPSHOT_PREFIX = 'scheduled'
 log = logging.getLogger(__name__)
 
 
+CephfsClientT = TypeVar('CephfsClientT', bound=CephfsClient)
+
+
 @contextmanager
-def open_ioctx(self, pool):
+def open_ioctx(self: CephfsClientT,
+               pool: Union[int, str]) -> Iterator[rados.Ioctx]:
     try:
         if type(pool) is int:
             with self.mgr.rados.open_ioctx2(pool) as ioctx:
@@ -48,17 +51,22 @@ def open_ioctx(self, pool):
         raise
 
 
-def updates_schedule_db(func):
-    def f(self, fs, schedule_or_path, *args):
-        func(self, fs, schedule_or_path, *args)
+FuncT = TypeVar('FuncT', bound=Callable[..., None])
+
+
+def updates_schedule_db(func: FuncT) -> FuncT:
+    def f(self: 'SnapSchedClient', fs: str, schedule_or_path: str, *args: Any) -> None:
+        ret = func(self, fs, schedule_or_path, *args)
         path = schedule_or_path
         if isinstance(schedule_or_path, Schedule):
             path = schedule_or_path.path
         self.refresh_snap_timers(fs, path)
-    return f
+        return ret
+    return cast(FuncT, f)
 
 
-def get_prune_set(candidates, retention):
+def get_prune_set(candidates: Set[Tuple[cephfs.DirEntry, datetime]],
+                  retention: Dict[str, int]) -> Set:
     PRUNING_PATTERNS = OrderedDict([
         # n is for keep last n snapshots, uses the snapshot name timestamp
         # format for lowest granularity
@@ -88,7 +96,8 @@ def get_prune_set(candidates, retention):
             if snap_ts != last:
                 last = snap_ts
                 if snap not in keep:
-                    log.debug(f'keeping {snap[0].d_name} due to {period_count}{period}')
+                    log.debug((f'keeping {snap[0].d_name} due to '
+                               f'{period_count}{period}'))
                     keep.append(snap)
                     kept_for_this_period += 1
                     if kept_for_this_period == period_count:
@@ -96,7 +105,8 @@ def get_prune_set(candidates, retention):
                                    f'{period_count}{period}'))
                         break
     if len(keep) > MAX_SNAPS_PER_PATH:
-        log.info(f'Would keep more then {MAX_SNAPS_PER_PATH}, pruning keep set')
+        log.info((f'Would keep more then {MAX_SNAPS_PER_PATH}, '
+                  'pruning keep set'))
         keep = keep[:MAX_SNAPS_PER_PATH]
     return candidates - set(keep)
 
@@ -132,8 +142,10 @@ class DBConnectionManager():
 
 class SnapSchedClient(CephfsClient):
 
-    def __init__(self, mgr):
+    def __init__(self, mgr: Any) -> None:
         super(SnapSchedClient, self).__init__(mgr)
+        # TODO maybe iterate over all fs instance in fsmap and load snap dbs?
+        #
         # Each db connection is now guarded by a Lock; this is required to
         # avoid concurrent DB transactions when more than one paths in a
         # file-system are scheduled at the same interval eg. 1h; without the
@@ -143,65 +155,53 @@ class SnapSchedClient(CephfsClient):
         self.active_timers: Dict[Tuple[str, str], List[Timer]] = {}
         self.conn_lock: Lock = Lock()  # lock to protect add/lookup db connections
 
-        # restart old schedules
-        for fs_name in self.get_all_filesystems():
-            with self.get_schedule_db(fs_name) as conn_mgr:
-                db = conn_mgr.dbinfo.db
-                sched_list = Schedule.list_all_schedules(db, fs_name)
-                for sched in sched_list:
-                    self.refresh_snap_timers(fs_name, sched.path, db)
-
     @property
-    def allow_minute_snaps(self):
+    def allow_minute_snaps(self) -> None:
         return self.mgr.get_module_option('allow_m_granularity')
 
     @property
     def dump_on_update(self) -> None:
         return self.mgr.get_module_option('dump_on_update')
 
-    def get_schedule_db(self, fs):
+    def get_schedule_db(self, fs: str) -> DBConnectionManager:
         dbinfo = None
         self.conn_lock.acquire()
         if fs not in self.sqlite_connections:
-            db = sqlite3.connect(':memory:', check_same_thread=False)
-            with db:
-                db.row_factory = sqlite3.Row
-                db.execute("PRAGMA FOREIGN_KEYS = 1")
-                pool = self.get_metadata_pool(fs)
-                with open_ioctx(self, pool) as ioctx:
-                    try:
-                        size, _mtime = ioctx.stat(SNAP_DB_OBJECT_NAME)
-                        ddl = ioctx.read(SNAP_DB_OBJECT_NAME,
-                                         size).decode('utf-8')
-                        db.executescript(ddl)
-                    except rados.ObjectNotFound:
-                        log.debug(f'No schedule DB found in {fs}, creating one.')
-                        db.executescript(Schedule.CREATE_TABLES)
+            poolid = self.get_metadata_pool(fs)
+            assert poolid, f'fs "{fs}" not found'
+            uri = f"file:///*{poolid}:/{SNAP_DB_OBJECT_NAME}.db?vfs=ceph"
+            log.debug(f"using uri {uri}")
+            db = sqlite3.connect(uri, check_same_thread=False, uri=True)
+            db.execute('PRAGMA FOREIGN_KEYS = 1')
+            db.execute('PRAGMA JOURNAL_MODE = PERSIST')
+            db.execute('PRAGMA PAGE_SIZE = 65536')
+            db.execute('PRAGMA CACHE_SIZE = 256')
+            db.row_factory = sqlite3.Row
+            # check for legacy dump store
+            pool_param = cast(Union[int, str], poolid)
+            with open_ioctx(self, pool_param) as ioctx:
+                try:
+                    size, _mtime = ioctx.stat(SNAP_DB_OBJECT_NAME)
+                    dump = ioctx.read(SNAP_DB_OBJECT_NAME, size).decode('utf-8')
+                    db.executescript(dump)
+                    ioctx.remove(SNAP_DB_OBJECT_NAME)
+                except rados.ObjectNotFound:
+                    log.debug(f'No legacy schedule DB found in {fs}')
+            db.executescript(Schedule.CREATE_TABLES)
             self.sqlite_connections[fs] = DBInfo(fs, db)
         dbinfo = self.sqlite_connections[fs]
         self.conn_lock.release()
         return DBConnectionManager(dbinfo)
 
-    def store_schedule_db(self, fs, db):
-        # only store db is it exists, otherwise nothing to do
-        metadata_pool = self.get_metadata_pool(fs)
-        if not metadata_pool:
-            raise CephfsConnectionException(
-                -errno.ENOENT, "Filesystem {} does not exist".format(fs))
-        db_content = []
-        for row in db.iterdump():
-            db_content.append(row)
-        with open_ioctx(self, metadata_pool) as ioctx:
-            ioctx.write_full(SNAP_DB_OBJECT_NAME,
-                             '\n'.join(db_content).encode('utf-8'))
-
-    def _is_allowed_repeat(self, exec_row, path):
+    def _is_allowed_repeat(self, exec_row: Dict[str, str], path: str) -> bool:
         if Schedule.parse_schedule(exec_row['schedule'])[1] == 'M':
             if self.allow_minute_snaps:
-                log.debug(f'Minute repeats allowed, scheduling snapshot on path {path}')
+                log.debug(('Minute repeats allowed, '
+                           f'scheduling snapshot on path {path}'))
                 return True
             else:
-                log.info(f'Minute repeats disabled, skipping snapshot on path {path}')
+                log.info(('Minute repeats disabled, '
+                          f'skipping snapshot on path {path}'))
                 return False
         else:
             return True
@@ -247,11 +247,16 @@ class SnapSchedClient(CephfsClient):
         except Exception:
             self._log_exception('refresh_snap_timers')
 
-    def _log_exception(self, fct):
+    def _log_exception(self, fct: str) -> None:
         log.error(f'{fct} raised an exception:')
         log.error(traceback.format_exc())
 
-    def create_scheduled_snapshot(self, fs_name, path, retention, start, repeat):
+    def create_scheduled_snapshot(self,
+                                  fs_name: str,
+                                  path: str,
+                                  retention: str,
+                                  start: str,
+                                  repeat: str) -> None:
         log.debug(f'Scheduled snapshot of {path} triggered')
         try:
             with self.get_schedule_db(fs_name) as conn_mgr:
@@ -283,7 +288,7 @@ class SnapSchedClient(CephfsClient):
                 self.refresh_snap_timers(fs_name, path, db)
             self.prune_snapshots(sched)
 
-    def prune_snapshots(self, sched):
+    def prune_snapshots(self, sched: Schedule) -> None:
         try:
             log.debug('Pruning snapshots')
             ret = sched.retention
@@ -330,7 +335,10 @@ class SnapSchedClient(CephfsClient):
 
     @updates_schedule_db
     # TODO improve interface
-    def store_snap_schedule(self, fs, path_, args):
+    def store_snap_schedule(self,
+                            fs: str, path_: str,
+                            args: Tuple[str, str, str, str,
+                                        Optional[str], Optional[str]]) -> None:
         sched = Schedule(*args)
         log.debug(f'repeat is {sched.repeat}')
         if sched.parse_schedule(sched.schedule)[1] == 'M' and not self.allow_minute_snaps:
@@ -340,7 +348,6 @@ class SnapSchedClient(CephfsClient):
         with self.get_schedule_db(fs) as conn_mgr:
             db = conn_mgr.dbinfo.db
             sched.store_schedule(db)
-            self.store_schedule_db(sched.fs, db)
 
     @updates_schedule_db
     def rm_snap_schedule(self,
@@ -353,10 +360,10 @@ class SnapSchedClient(CephfsClient):
 
     @updates_schedule_db
     def add_retention_spec(self,
-                           fs,
-                           path,
-                           retention_spec_or_period,
-                           retention_count):
+                           fs: str,
+                           path: str,
+                           retention_spec_or_period: str,
+                           retention_count: Optional[str]) -> None:
         retention_spec = retention_spec_or_period
         if retention_count:
             retention_spec = retention_count + retention_spec
@@ -366,10 +373,10 @@ class SnapSchedClient(CephfsClient):
 
     @updates_schedule_db
     def rm_retention_spec(self,
-                          fs,
-                          path,
-                          retention_spec_or_period,
-                          retention_count):
+                          fs: str,
+                          path: str,
+                          retention_spec_or_period: str,
+                          retention_count: Optional[str]) -> None:
         retention_spec = retention_spec_or_period
         if retention_count:
             retention_spec = retention_count + retention_spec

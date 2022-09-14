@@ -110,13 +110,6 @@ that case, you can install cephadm directly. For example:
 
      apt install -y cephadm
 
-  In CentOS Stream:
-
-  .. prompt:: bash #
-
-     dnf install --assumeyes centos-release-ceph-pacific.noarch
-     dnf install --assumeyes cephadm
-
   In Fedora:
 
   .. prompt:: bash #

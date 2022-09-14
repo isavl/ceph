@@ -53,7 +53,7 @@ def get_physical_osds(devices, args):
     data_slots = args.osds_per_device
     if args.data_slots:
         data_slots = max(args.data_slots, args.osds_per_device)
-    rel_data_size = 1.0 / data_slots
+    rel_data_size = args.data_allocate_fraction / data_slots
     mlogger.debug('relative data size: {}'.format(rel_data_size))
     ret = []
     for dev in devices:
@@ -292,6 +292,12 @@ class Batch(object):
                   'will stay unoccupied'),
         )
         parser.add_argument(
+            '--data-allocate-fraction',
+            type=arg_validators.ValidFraction(),
+            help='Fraction to allocate from data device (0,1.0]',
+            default=1.0
+        )
+        parser.add_argument(
             '--block-db-size',
             type=disk.Size.parse,
             help='Set (or override) the "bluestore_block_db_size" value, in bytes'
@@ -340,7 +346,7 @@ class Batch(object):
             nargs='*',
             default=[],
             help='Reuse existing OSD ids',
-            type=common.valid_osd_id
+            type=arg_validators.valid_osd_id
         )
         self.args = parser.parse_args(argv)
         self.parser = parser

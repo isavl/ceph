@@ -14,31 +14,37 @@
 // Include this first to get python headers earlier
 #include "Gil.h"
 
+#include "ActivePyModules.h"
+
+#include <rocksdb/version.h>
+
 #include "common/errno.h"
 #include "include/stringify.h"
 
-#include "PyFormatter.h"
-
-#include "osd/OSDMap.h"
 #include "mon/MonMap.h"
+#include "osd/OSDMap.h"
 #include "osd/osd_types.h"
 #include "mgr/MgrContext.h"
 #include "mgr/TTLCache.h"
 #include "mgr/mgr_perf_counters.h"
 
+#include "DaemonKey.h"
+#include "DaemonServer.h"
+#include "mgr/MgrContext.h"
+#include "PyFormatter.h"
 // For ::mgr_store_prefix
 #include "PyModule.h"
 #include "PyModuleRegistry.h"
 #include "PyUtil.h"
 
-#include "ActivePyModules.h"
-#include "DaemonKey.h"
-#include "DaemonServer.h"
-
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_mgr
 #undef dout_prefix
 #define dout_prefix *_dout << "mgr " << __func__ << " "
+
+using std::pair;
+using std::string;
+using namespace std::literals;
 
 ActivePyModules::ActivePyModules(
   PyModuleConfig &module_config_,
@@ -121,7 +127,7 @@ PyObject *ActivePyModules::list_servers_python()
   without_gil_t no_gil;
   return daemon_state.with_daemons_by_server([this, &no_gil]
       (const std::map<std::string, DaemonStateCollection> &all) {
-    with_gil_t with_gil{no_gil};
+    no_gil.acquire_gil();
     PyFormatter f(false, true);
     for (const auto &[hostname, daemon_state] : all) {
       f.open_object_section("server");
@@ -221,7 +227,7 @@ PyObject *ActivePyModules::get_python(const std::string &what)
       osd_map.crush->encode(rdata, CEPH_FEATURES_SUPPORTED_DEFAULT);
     });
     std::string crush_text = rdata.to_str();
-    with_gil_t with_gil{no_gil};
+    no_gil.acquire_gil();
     return PyUnicode_FromString(crush_text.c_str());
   } else if (what.substr(0, 7) == "osd_map") {
     without_gil_t no_gil;
@@ -245,7 +251,7 @@ PyObject *ActivePyModules::get_python(const std::string &what)
 	names.insert(name);
       }
     }
-    with_gil_t with_gil{no_gil};
+    no_gil.acquire_gil();
     f.open_array_section("options");
     for (auto& name : names) {
       f.dump_string("name", name);
@@ -314,7 +320,7 @@ PyObject *ActivePyModules::get_python(const std::string &what)
             }
             all[state]++;
           }
-          with_gil_t with_gil{no_gil};
+          no_gil.acquire_gil();
           f.open_object_section("by_osd");
           for (const auto &i : osds) {
             f.open_object_section(i.first.c_str());
@@ -347,7 +353,7 @@ PyObject *ActivePyModules::get_python(const std::string &what)
     without_gil_t no_gil;
     cluster_state.with_pgmap(
         [&](const PGMap &pg_map) {
-	  with_gil_t with_gil{no_gil};
+	  no_gil.acquire_gil();
 	  pg_map.print_summary(&f, nullptr);
         }
     );
@@ -355,7 +361,7 @@ PyObject *ActivePyModules::get_python(const std::string &what)
     without_gil_t no_gil;
     cluster_state.with_pgmap(
       [&](const PGMap &pg_map) {
-	with_gil_t with_gil{no_gil};
+	no_gil.acquire_gil();
 	pg_map.dump(&f, false);
       }
     );
@@ -386,7 +392,7 @@ PyObject *ActivePyModules::get_python(const std::string &what)
     without_gil_t no_gil;
     cluster_state.with_pgmap(
       [&](const PGMap &pg_map) {
-        with_gil_t with_gil{no_gil};
+        no_gil.acquire_gil();
         pg_map.dump_delta(&f);
       }
     );
@@ -396,7 +402,7 @@ PyObject *ActivePyModules::get_python(const std::string &what)
       [&](
 	const OSDMap& osd_map,
 	const PGMap &pg_map) {
-        with_gil_t with_gil{no_gil};
+        no_gil.acquire_gil();
         pg_map.dump_cluster_stats(nullptr, &f, true);
         pg_map.dump_pool_stats_full(osd_map, nullptr, &f, true);
       });
@@ -434,11 +440,11 @@ PyObject *ActivePyModules::get_python(const std::string &what)
       pg_map.dump_osd_ping_times(&f);
     });
   } else if (what == "osd_pool_stats") {
-    int64_t poolid = -ENOENT;
     without_gil_t no_gil;
+    int64_t poolid = -ENOENT;
     cluster_state.with_osdmap_and_pgmap([&](const OSDMap& osdmap,
 					    const PGMap& pg_map) {
-      with_gil_t with_gil{no_gil};
+      no_gil.acquire_gil();
       f.open_array_section("pool_stats");
       for (auto &p : osdmap.get_pools()) {
         poolid = p.first;
@@ -456,7 +462,7 @@ PyObject *ActivePyModules::get_python(const std::string &what)
     without_gil_t no_gil;
     cluster_state.with_mon_status(
         [&](const ceph::bufferlist &mon_status_json) {
-      with_gil_t with_gil{no_gil};
+      no_gil.acquire_gil();
       f.dump_string("json", mon_status_json.to_str());
     });
   } else if (what == "mgr_map") {
@@ -482,7 +488,7 @@ PyObject *ActivePyModules::get_python(const std::string &what)
     without_gil_t no_gil;
     cluster_state.with_pgmap(
         [&](const PGMap &pg_map) {
-      with_gil_t with_gil{no_gil};
+      no_gil.acquire_gil();
       f.open_array_section("pg_stats");
       for (auto &i : pg_map.pg_stat) {
         const auto state = i.second.state;
@@ -505,6 +511,8 @@ PyObject *ActivePyModules::get_python(const std::string &what)
     derr << "Python module requested unknown data '" << what << "'" << dendl;
     Py_RETURN_NONE;
   }
+  without_gil_t no_gil;
+  no_gil.acquire_gil();
   if(ttl_seconds) {
     return jf.get();
   } else {
@@ -682,7 +690,7 @@ PyObject *ActivePyModules::get_typed_config(
   }
   if (found) {
     PyModuleRef module = py_module_registry.get_module(module_name);
-    with_gil_t with_gil{no_gil};
+    no_gil.acquire_gil();
     if (!module) {
         derr << "Module '" << module_name << "' is not available" << dendl;
         Py_RETURN_NONE;
@@ -699,7 +707,6 @@ PyObject *ActivePyModules::get_typed_config(
   } else {
     dout(10) << " " << key << " not found " << dendl;
   }
-  with_gil_t with_gil{no_gil};
   Py_RETURN_NONE;
 }
 
@@ -709,24 +716,23 @@ PyObject *ActivePyModules::get_store_prefix(const std::string &module_name,
   without_gil_t no_gil;
   std::lock_guard l(lock);
   std::lock_guard lock(module_config.lock);
+  no_gil.acquire_gil();
 
   const std::string base_prefix = PyModule::mgr_store_prefix
                                     + module_name + "/";
   const std::string global_prefix = base_prefix + prefix;
   dout(4) << __func__ << " prefix: " << global_prefix << dendl;
 
-  return with_gil(no_gil, [&] {
-    PyFormatter f;
-    for (auto p = store_cache.lower_bound(global_prefix);
-         p != store_cache.end() && p->first.find(global_prefix) == 0; ++p) {
-      f.dump_string(p->first.c_str() + base_prefix.size(), p->second);
-    }
-    return f.get();
-  });
+  PyFormatter f;
+  for (auto p = store_cache.lower_bound(global_prefix);
+       p != store_cache.end() && p->first.find(global_prefix) == 0; ++p) {
+    f.dump_string(p->first.c_str() + base_prefix.size(), p->second);
+  }
+  return f.get();
 }
 
 void ActivePyModules::set_store(const std::string &module_name,
-    const std::string &key, const boost::optional<std::string>& val)
+    const std::string &key, const std::optional<std::string>& val)
 {
   const std::string global_key = PyModule::mgr_store_prefix
                                    + module_name + "/" + key;
@@ -770,10 +776,12 @@ void ActivePyModules::set_store(const std::string &module_name,
   }
 }
 
-void ActivePyModules::set_config(const std::string &module_name,
-    const std::string &key, const boost::optional<std::string>& val)
+std::pair<int, std::string> ActivePyModules::set_config(
+  const std::string &module_name,
+  const std::string &key,
+  const std::optional<std::string>& val)
 {
-  module_config.set_config(&monc, module_name, key, val);
+  return module_config.set_config(&monc, module_name, key, val);
 }
 
 std::map<std::string, std::string> ActivePyModules::get_services() const
@@ -793,7 +801,7 @@ std::map<std::string, std::string> ActivePyModules::get_services() const
 void ActivePyModules::update_kv_data(
   const std::string prefix,
   bool incremental,
-  const map<std::string, boost::optional<bufferlist>, std::less<>>& data)
+  const map<std::string, std::optional<bufferlist>, std::less<>>& data)
 {
   std::lock_guard l(lock);
   bool do_config = false;
@@ -1026,6 +1034,15 @@ PyObject* ActivePyModules::get_perf_schema_python(
   return f.get();
 }
 
+PyObject* ActivePyModules::get_rocksdb_version()
+{
+  std::string version = std::to_string(ROCKSDB_MAJOR) + "." +
+                        std::to_string(ROCKSDB_MINOR) + "." +
+                        std::to_string(ROCKSDB_PATCH);
+
+  return PyUnicode_FromString(version.c_str());
+}
+
 PyObject *ActivePyModules::get_context()
 {
   auto l = without_gil([&] {
@@ -1050,7 +1067,8 @@ PyObject *construct_with_capsule(
   PyObject *module = PyImport_ImportModule(module_name.c_str());
   if (!module) {
     derr << "Failed to import python module:" << dendl;
-    derr << handle_pyerror() << dendl;
+    derr << handle_pyerror(true, module_name,
+			   "construct_with_capsule "s + module_name + " " + clsname) << dendl;
   }
   ceph_assert(module);
 
@@ -1058,7 +1076,8 @@ PyObject *construct_with_capsule(
       module, (const char*)clsname.c_str());
   if (!wrapper_type) {
     derr << "Failed to get python type:" << dendl;
-    derr << handle_pyerror() << dendl;
+    derr << handle_pyerror(true, module_name,
+			   "construct_with_capsule "s + module_name + " " + clsname) << dendl;
   }
   ceph_assert(wrapper_type);
 
@@ -1071,7 +1090,8 @@ PyObject *construct_with_capsule(
   auto wrapper_instance = PyObject_CallObject(wrapper_type, pArgs);
   if (wrapper_instance == nullptr) {
     derr << "Failed to construct python OSDMap:" << dendl;
-    derr << handle_pyerror() << dendl;
+    derr << handle_pyerror(true, module_name,
+			   "construct_with_capsule "s + module_name + " " + clsname) << dendl;
   }
   ceph_assert(wrapper_instance != nullptr);
   Py_DECREF(pArgs);
@@ -1127,7 +1147,7 @@ PyObject *ActivePyModules::get_foreign_config(
     cmd.wait();
     dout(10) << "ceph_foreign_option_get (mon command) " << who << " " << name << " = "
 	     << cmd.outbl.to_str() << dendl;
-    with_gil_t gil(no_gil);
+    no_gil.acquire_gil();
     return get_python_typed_option_value(opt->type, cmd.outbl.to_str());
   }
 
@@ -1177,7 +1197,7 @@ PyObject *ActivePyModules::get_foreign_config(
     value = p->second;
   } else {
     if (!entity.is_client() &&
-	!boost::get<boost::blank>(&opt->daemon_value)) {
+	opt->daemon_value != Option::value_t{}) {
       value = Option::to_str(opt->daemon_value);
     } else {
       value = Option::to_str(opt->value);
@@ -1187,7 +1207,7 @@ PyObject *ActivePyModules::get_foreign_config(
   dout(10) << "ceph_foreign_option_get (configmap) " << who << " " << name << " = "
 	   << value << dendl;
   lock.unlock();
-  with_gil_t with_gil(no_gil);
+  no_gil.acquire_gil();
   return get_python_typed_option_value(opt->type, value);
 }
 
@@ -1459,23 +1479,7 @@ void ActivePyModules::cluster_log(const std::string &channel, clog_type prio,
   std::lock_guard l(lock);
 
   auto cl = monc.get_log_client()->create_channel(channel);
-  map<string,string> log_to_monitors;
-  map<string,string> log_to_syslog;
-  map<string,string> log_channel;
-  map<string,string> log_prio;
-  map<string,string> log_to_graylog;
-  map<string,string> log_to_graylog_host;
-  map<string,string> log_to_graylog_port;
-  uuid_d fsid;
-  string host;
-  if (parse_log_client_options(g_ceph_context, log_to_monitors, log_to_syslog,
-			       log_channel, log_prio, log_to_graylog,
-			       log_to_graylog_host, log_to_graylog_port,
-			       fsid, host) == 0)
-    cl->update_config(log_to_monitors, log_to_syslog,
-		      log_channel, log_prio, log_to_graylog,
-		      log_to_graylog_host, log_to_graylog_port,
-		      fsid, host);
+  cl->parse_client_options(g_ceph_context);
   cl->do_log(prio, message);
 }
 

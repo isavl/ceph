@@ -14,11 +14,10 @@ from cephadm.services.nfs import NFSService
 from cephadm.services.osd import OSDService
 from cephadm.services.monitoring import GrafanaService, AlertmanagerService, PrometheusService, \
     NodeExporterService
-from cephadm.services.exporter import CephadmExporter
 from cephadm.module import CephadmOrchestrator
 from ceph.deployment.service_spec import IscsiServiceSpec, MonitoringSpec, AlertManagerSpec, \
     ServiceSpec, RGWSpec, GrafanaSpec, SNMPGatewaySpec, IngressSpec, PlacementSpec
-from cephadm.tests.fixtures import with_host, with_service, _run_cephadm
+from cephadm.tests.fixtures import with_host, with_service, _run_cephadm, async_side_effect
 
 from orchestrator import OrchestratorError
 from orchestrator._interface import DaemonDescription
@@ -83,7 +82,6 @@ class TestCephadmService:
         node_exporter_service = NodeExporterService(mgr)
         crash_service = CrashService(mgr)
         iscsi_service = IscsiService(mgr)
-        cephadm_exporter_service = CephadmExporter(mgr)
         cephadm_services = {
             'mon': mon_service,
             'mgr': mgr_service,
@@ -98,7 +96,6 @@ class TestCephadmService:
             'node-exporter': node_exporter_service,
             'crash': crash_service,
             'iscsi': iscsi_service,
-            'cephadm-exporter': cephadm_exporter_service,
         }
         return cephadm_services
 
@@ -138,7 +135,7 @@ class TestCephadmService:
 
         # services based on CephadmService shouldn't have get_auth_entity
         with pytest.raises(AttributeError):
-            for daemon_type in ['grafana', 'alertmanager', 'prometheus', 'node-exporter', 'cephadm-exporter']:
+            for daemon_type in ['grafana', 'alertmanager', 'prometheus', 'node-exporter']:
                 cephadm_services[daemon_type].get_auth_entity("id1", "host")
                 cephadm_services[daemon_type].get_auth_entity("id1", "")
                 cephadm_services[daemon_type].get_auth_entity("id1")
@@ -239,7 +236,7 @@ class TestISCSIService:
 class TestMonitoring:
     @patch("cephadm.serve.CephadmServe._run_cephadm")
     def test_alertmanager_config(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
-        _run_cephadm.return_value = ('{}', '', 0)
+        _run_cephadm.side_effect = async_side_effect(('{}', '', 0))
 
         with with_host(cephadm_module, 'test'):
             with with_service(cephadm_module, AlertManagerSpec()):
@@ -250,9 +247,6 @@ class TestMonitoring:
 
                 global:
                   resolve_timeout: 5m
-                  http_config:
-                    tls_config:
-                      insecure_skip_verify: true
 
                 route:
                   receiver: 'default'
@@ -286,7 +280,7 @@ class TestMonitoring:
 
     @patch("cephadm.serve.CephadmServe._run_cephadm")
     def test_prometheus_config(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
-        _run_cephadm.return_value = ('{}', '', 0)
+        _run_cephadm.side_effect = async_side_effect(('{}', '', 0))
 
         with with_host(cephadm_module, 'test'):
             with with_service(cephadm_module, MonitoringSpec('node-exporter')) as _, \
@@ -304,7 +298,7 @@ class TestMonitoring:
                     honor_labels: true
                     static_configs:
                     - targets:
-                      - '[::1]:9283'
+                      - '[::1]:8081'
 
                   - job_name: 'node'
                     static_configs:
@@ -332,7 +326,7 @@ class TestMonitoring:
     @patch("cephadm.module.CephadmOrchestrator.get_mgr_ip", lambda _: '1::4')
     @patch("cephadm.services.monitoring.verify_tls", lambda *_: None)
     def test_grafana_config(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
-        _run_cephadm.return_value = ('{}', '', 0)
+        _run_cephadm.side_effect = async_side_effect(('{}', '', 0))
 
         with with_host(cephadm_module, 'test'):
             cephadm_module.set_store('grafana_crt', 'c')
@@ -441,7 +435,7 @@ class TestMonitoring:
 
     @patch("cephadm.serve.CephadmServe._run_cephadm")
     def test_monitoring_ports(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
-        _run_cephadm.return_value = ('{}', '', 0)
+        _run_cephadm.side_effect = async_side_effect(('{}', '', 0))
 
         with with_host(cephadm_module, 'test'):
 
@@ -488,14 +482,11 @@ class TestRGWService:
     @patch("cephadm.serve.CephadmServe._run_cephadm", _run_cephadm('{}'))
     def test_rgw_update(self, frontend, ssl, expected, cephadm_module: CephadmOrchestrator):
         with with_host(cephadm_module, 'host1'):
-            cephadm_module.cache.update_host_devices_networks(
-                'host1',
-                dls=cephadm_module.cache.devices['host1'],
-                nets={
-                    'fd00:fd00:fd00:3000::/64': {
-                        'if0': ['fd00:fd00:fd00:3000::1']
-                    }
-                })
+            cephadm_module.cache.update_host_networks('host1', {
+                'fd00:fd00:fd00:3000::/64': {
+                    'if0': ['fd00:fd00:fd00:3000::1']
+                }
+            })
             s = RGWSpec(service_id="foo",
                         networks=['fd00:fd00:fd00:3000::/64'],
                         ssl=ssl,
@@ -513,7 +504,7 @@ class TestSNMPGateway:
 
     @patch("cephadm.serve.CephadmServe._run_cephadm")
     def test_snmp_v2c_deployment(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
-        _run_cephadm.return_value = ('{}', '', 0)
+        _run_cephadm.side_effect = async_side_effect(('{}', '', 0))
 
         spec = SNMPGatewaySpec(
             snmp_version='V2c',
@@ -547,7 +538,7 @@ class TestSNMPGateway:
 
     @patch("cephadm.serve.CephadmServe._run_cephadm")
     def test_snmp_v2c_with_port(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
-        _run_cephadm.return_value = ('{}', '', 0)
+        _run_cephadm.side_effect = async_side_effect(('{}', '', 0))
 
         spec = SNMPGatewaySpec(
             snmp_version='V2c',
@@ -582,7 +573,7 @@ class TestSNMPGateway:
 
     @patch("cephadm.serve.CephadmServe._run_cephadm")
     def test_snmp_v3nopriv_deployment(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
-        _run_cephadm.return_value = ('{}', '', 0)
+        _run_cephadm.side_effect = async_side_effect(('{}', '', 0))
 
         spec = SNMPGatewaySpec(
             snmp_version='V3',
@@ -621,7 +612,7 @@ class TestSNMPGateway:
 
     @patch("cephadm.serve.CephadmServe._run_cephadm")
     def test_snmp_v3priv_deployment(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
-        _run_cephadm.return_value = ('{}', '', 0)
+        _run_cephadm.side_effect = async_side_effect(('{}', '', 0))
 
         spec = SNMPGatewaySpec(
             snmp_version='V3',
@@ -668,18 +659,14 @@ class TestIngressService:
 
     @patch("cephadm.serve.CephadmServe._run_cephadm")
     def test_ingress_config(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
-        _run_cephadm.return_value = ('{}', '', 0)
+        _run_cephadm.side_effect = async_side_effect(('{}', '', 0))
 
         with with_host(cephadm_module, 'test'):
-            cephadm_module.cache.update_host_devices_networks(
-                'test',
-                cephadm_module.cache.devices['test'],
-                {
-                    '1.2.3.0/24': {
-                        'if0': ['1.2.3.4/32']
-                    }
+            cephadm_module.cache.update_host_networks('test', {
+                '1.2.3.0/24': {
+                    'if0': ['1.2.3.4/32']
                 }
-            )
+            })
 
             # the ingress backend
             s = RGWSpec(service_id="foo", placement=PlacementSpec(count=1),
@@ -786,7 +773,8 @@ class TestIngressService:
                                 'option forwardfor\n    '
                                 'balance static-rr\n    '
                                 'option httpchk HEAD / HTTP/1.0\n    '
-                                'server ' + haproxy_generated_conf[1][0] + ' 1::4:80 check weight 100\n'
+                                'server '
+                                + haproxy_generated_conf[1][0] + ' 1::4:80 check weight 100\n'
                         }
                 }
 
@@ -796,7 +784,7 @@ class TestIngressService:
 class TestCephFsMirror:
     @patch("cephadm.serve.CephadmServe._run_cephadm")
     def test_config(self, _run_cephadm, cephadm_module: CephadmOrchestrator):
-        _run_cephadm.return_value = ('{}', '', 0)
+        _run_cephadm.side_effect = async_side_effect(('{}', '', 0))
         with with_host(cephadm_module, 'test'):
             with with_service(cephadm_module, ServiceSpec('cephfs-mirror')):
                 cephadm_module.assert_issued_mon_command({

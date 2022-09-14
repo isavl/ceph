@@ -26,24 +26,24 @@ class ETagVerifier : public rgw::putobj::Pipe
 protected:
   CephContext* cct;
   MD5 hash;
-  string calculated_etag;
+  std::string calculated_etag;
 
 public:
-  ETagVerifier(CephContext* cct_, rgw::putobj::DataProcessor *next)
+  ETagVerifier(CephContext* cct_, rgw::sal::DataProcessor *next)
     : Pipe(next), cct(cct_) {
       // Allow use of MD5 digest in FIPS mode for non-cryptographic purposes
       hash.SetFlags(EVP_MD_CTX_FLAG_NON_FIPS_ALLOW);
     }
 
   virtual void calculate_etag() = 0;
-  string get_calculated_etag() { return calculated_etag;}
+  std::string get_calculated_etag() { return calculated_etag;}
 
 }; /* ETagVerifier */
 
 class ETagVerifier_Atomic : public ETagVerifier
 {
 public:
-  ETagVerifier_Atomic(CephContext* cct_, rgw::putobj::DataProcessor *next)
+  ETagVerifier_Atomic(CephContext* cct_, rgw::sal::DataProcessor *next)
     : ETagVerifier(cct_, next) {}
 
   int process(bufferlist&& data, uint64_t logical_offset) override;
@@ -62,7 +62,7 @@ class ETagVerifier_MPU : public ETagVerifier
 public:
   ETagVerifier_MPU(CephContext* cct,
                              std::vector<uint64_t> part_ofs,
-                             rgw::putobj::DataProcessor *next)
+                             rgw::sal::DataProcessor *next)
     : ETagVerifier(cct, next),
       part_ofs(std::move(part_ofs))
   {
@@ -82,7 +82,7 @@ constexpr auto max_etag_verifier_size = std::max(
 using etag_verifier_ptr = ceph::static_ptr<ETagVerifier, max_etag_verifier_size>;
 
 int create_etag_verifier(const DoutPrefixProvider *dpp, 
-                         CephContext* cct, DataProcessor* next,
+                         CephContext* cct, rgw::sal::DataProcessor* next,
                          const bufferlist& manifest_bl,
                          const std::optional<RGWCompressionInfo>& compression,
                          etag_verifier_ptr& verifier);

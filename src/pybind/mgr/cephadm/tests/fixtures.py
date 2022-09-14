@@ -1,12 +1,15 @@
 import fnmatch
+import asyncio
+import sys
+from tempfile import NamedTemporaryFile
 from contextlib import contextmanager
 
 from ceph.deployment.service_spec import PlacementSpec, ServiceSpec
 from ceph.utils import datetime_to_str, datetime_now
-from cephadm.serve import CephadmServe
+from cephadm.serve import CephadmServe, cephadmNoImage
 
 try:
-    from typing import Any, Iterator, List
+    from typing import Any, Iterator, List, Callable, Dict
 except ImportError:
     pass
 
@@ -15,19 +18,18 @@ from orchestrator import raise_if_exception, OrchResult, HostSpec, DaemonDescrip
 from tests import mock
 
 
+def async_side_effect(result):
+    async def side_effect(*args, **kwargs):
+        return result
+    return side_effect
+
+
 def get_ceph_option(_, key):
     return __file__
 
 
-def get_module_option_ex(_, module, key, default=None):
-    if module == 'prometheus':
-        if key == 'server_port':
-            return 9283
-    return None
-
-
 def _run_cephadm(ret):
-    def foo(s, host, entity, cmd, e, **kwargs):
+    async def foo(s, host, entity, cmd, e, **kwargs):
         if cmd == 'gather-facts':
             return '{}', '', 0
         return [ret], '', 0
@@ -40,6 +42,41 @@ def match_glob(val, pat):
         assert pat in val
 
 
+class MockEventLoopThread:
+    def get_result(self, coro):
+        if sys.version_info >= (3, 7):
+            return asyncio.run(coro)
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+            asyncio.set_event_loop(None)
+
+
+def receive_agent_metadata(m: CephadmOrchestrator, host: str, ops: List[str] = None) -> None:
+    to_update: Dict[str, Callable[[str, Any], None]] = {
+        'ls': m._process_ls_output,
+        'gather-facts': m.cache.update_host_facts,
+        'list-networks': m.cache.update_host_networks,
+    }
+    if ops:
+        for op in ops:
+            out = m.wait_async(CephadmServe(m)._run_cephadm_json(host, cephadmNoImage, op, []))
+            to_update[op](host, out)
+    m.cache.last_daemon_update[host] = datetime_now()
+    m.cache.last_facts_update[host] = datetime_now()
+    m.cache.last_network_update[host] = datetime_now()
+    m.cache.metadata_up_to_date[host] = True
+
+
+def receive_agent_metadata_all_hosts(m: CephadmOrchestrator) -> None:
+    for host in m.cache.get_hosts():
+        receive_agent_metadata(m, host)
+
+
 @contextmanager
 def with_cephadm_module(module_options=None, store=None):
     """
@@ -48,10 +85,12 @@ def with_cephadm_module(module_options=None, store=None):
     """
     with mock.patch("cephadm.module.CephadmOrchestrator.get_ceph_option", get_ceph_option),\
             mock.patch("cephadm.services.osd.RemoveUtil._run_mon_cmd"), \
-            mock.patch('cephadm.module.CephadmOrchestrator.get_module_option_ex', get_module_option_ex),\
             mock.patch("cephadm.module.CephadmOrchestrator.get_osdmap"), \
             mock.patch("cephadm.module.CephadmOrchestrator.remote"), \
-            mock.patch('cephadm.offline_watcher.OfflineHostWatcher.run'):
+            mock.patch("cephadm.agent.CephadmAgentHelpers._request_agent_acks"), \
+            mock.patch("cephadm.agent.CephadmAgentHelpers._apply_agent", return_value=False), \
+            mock.patch("cephadm.agent.CephadmAgentHelpers._agent_down", return_value=False), \
+            mock.patch('cephadm.agent.CherryPyThread.run'):
 
         m = CephadmOrchestrator.__new__(CephadmOrchestrator)
         if module_options is not None:
@@ -77,6 +116,10 @@ def with_cephadm_module(module_options=None, store=None):
 
         m.__init__('cephadm', 0, 0)
         m._cluster_fsid = "fsid"
+
+        m.event_loop = MockEventLoopThread()
+        m.tkey = NamedTemporaryFile(prefix='test-cephadm-identity-')
+
         yield m
 
 
@@ -91,6 +134,7 @@ def with_host(m: CephadmOrchestrator, name, addr='1::4', refresh_hosts=True, rm_
         wait(m, m.add_host(HostSpec(hostname=name)))
         if refresh_hosts:
             CephadmServe(m)._refresh_hosts_and_daemons()
+            receive_agent_metadata(m, name)
         yield
         wait(m, m.remove_host(name, force=rm_with_force))
 
@@ -144,9 +188,3 @@ def make_daemons_running(cephadm_module, service_name):
     own_dds = cephadm_module.cache.get_daemons_by_service(service_name)
     for dd in own_dds:
         dd.status = DaemonDescriptionStatus.running  # We're changing the reference
-
-
-def _deploy_cephadm_binary(host):
-    def foo(*args, **kwargs):
-        return True
-    return foo

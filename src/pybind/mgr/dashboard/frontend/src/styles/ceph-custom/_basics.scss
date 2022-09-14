@@ -17,11 +17,6 @@ option {
   font-weight: normal;
 }
 
-mark {
-  background-color: vv.$yellow;
-  padding: 0;
-}
-
 .full-height {
   height: 100vh;
 }
@@ -77,6 +72,18 @@ mark {
 
 .text-pre {
   white-space: pre;
+}
+
+.icon-danger-color {
+  color: vv.$danger;
+}
+
+.icon-warning-color {
+  color: vv.$warning;
+}
+
+.border-warning {
+  border-left: 4px solid vv.$warning;
 }
 
 .border-danger {

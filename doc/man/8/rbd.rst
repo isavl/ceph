@@ -81,6 +81,9 @@ Parameters
    nearest power of two; if no suffix is given, unit B is assumed.  The default
    object size is 4M, smallest is 4K and maximum is 32M.
 
+   The default value can be changed with the configuration option ``rbd_default_order``,
+   which takes a power of two (default object size is ``2 ^ rbd_default_order``).
+
 .. option:: --stripe-unit size-in-B/K/M
 
    Specifies the stripe unit size in B/K/M.  If no suffix is given, unit B is
@@ -237,6 +240,8 @@ Commands
 :command:`cp` (*src-image-spec* | *src-snap-spec*) *dest-image-spec*
   Copy the content of a src-image into the newly created dest-image.
   dest-image will have the same size, object size, and image format as src-image.
+  Note: snapshots are not copied, use `deep cp` command to include
+  snapshots.
 
 :command:`create` (-s | --size *size-in-M/G/T*) [--image-format *format-id*] [--object-size *size-in-B/K/M*] [--stripe-unit *size-in-B/K/M* --stripe-count *num*] [--thick-provision] [--no-progress] [--image-feature *feature-name*]... [--image-shared] *image-spec*
   Will create a new rbd image. You must also specify the size via --size.  The
@@ -1025,7 +1030,7 @@ Availability
 ============
 
 **rbd** is part of Ceph, a massively scalable, open-source, distributed storage system. Please refer to
-the Ceph documentation at http://ceph.com/docs for more information.
+the Ceph documentation at https://docs.ceph.com for more information.
 
 
 See also

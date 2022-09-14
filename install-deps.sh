@@ -23,16 +23,14 @@ export LC_ALL=C # the following is vulnerable to i18n
 
 ARCH=$(uname -m)
 
-function in_jenkins() {
-    test -n "$JENKINS_HOME"
-}
-
 function munge_ceph_spec_in {
     local with_seastar=$1
     shift
     local with_zbd=$1
     shift
     local for_make_check=$1
+    shift
+    local with_jaeger=$1
     shift
     local OUTFILE=$1
     sed -e 's/@//g' < ceph.spec.in > $OUTFILE
@@ -54,10 +52,6 @@ function munge_ceph_spec_in {
 function munge_debian_control {
     local version=$1
     shift
-    local with_seastar=$1
-    shift
-    local for_make_check=$1
-    shift
     local control=$1
     case "$version" in
         *squeeze*|*wheezy*)
@@ -65,21 +59,14 @@ function munge_debian_control {
 	    grep -v babeltrace debian/control > $control
 	    ;;
     esac
-    if $with_seastar; then
-	sed -i -e 's/^# Crimson[[:space:]]//g' $control
-    fi
     if $with_jaeger; then
 	sed -i -e 's/^# Jaeger[[:space:]]//g' $control
 	sed -i -e 's/^# Crimson      libyaml-cpp-dev,/d' $control
-    fi
-    if $for_make_check; then
-        sed -i 's/^# Make-Check[[:space:]]/             /g' $control
     fi
     echo $control
 }
 
 function ensure_decent_gcc_on_ubuntu {
-    in_jenkins && echo "CI_DEBUG: Start ensure_decent_gcc_on_ubuntu() in install-deps.sh"
     # point gcc to the one offered by g++-7 if the used one is not
     # new enough
     local old=$(gcc -dumpfullversion -dumpversion)
@@ -138,12 +125,9 @@ ENDOFKEY
     # cmake uses the latter by default
     $SUDO ln -nsf /usr/bin/gcc /usr/bin/${ARCH}-linux-gnu-gcc
     $SUDO ln -nsf /usr/bin/g++ /usr/bin/${ARCH}-linux-gnu-g++
-
-    in_jenkins && echo "CI_DEBUG: End ensure_decent_gcc_on_ubuntu() in install-deps.sh"
 }
 
 function ensure_python3_sphinx_on_ubuntu {
-    in_jenkins && echo "CI_DEBUG: Running ensure_python3_sphinx_on_ubuntu() in install-deps.sh"
     local sphinx_command=/usr/bin/sphinx-build
     # python-sphinx points $sphinx_command to
     # ../share/sphinx/scripts/python2/sphinx-build when it's installed
@@ -154,7 +138,6 @@ function ensure_python3_sphinx_on_ubuntu {
 }
 
 function install_pkg_on_ubuntu {
-    in_jenkins && echo "CI_DEBUG: Running install_pkg_on_ubuntu() in install-deps.sh"
     local project=$1
     shift
     local sha1=$1
@@ -171,7 +154,6 @@ function install_pkg_on_ubuntu {
 	for pkg in $pkgs; do
 	    if ! apt -qq list $pkg 2>/dev/null | grep -q installed; then
 		missing_pkgs+=" $pkg"
-                in_jenkins && echo "CI_DEBUG: missing_pkgs=$missing_pkgs"
 	    fi
 	done
     fi
@@ -184,8 +166,7 @@ function install_pkg_on_ubuntu {
 }
 
 function install_boost_on_ubuntu {
-    local ver=1.73
-    in_jenkins && echo "CI_DEBUG: Running install_boost_on_ubuntu() in install-deps.sh"
+    local ver=1.75
     local installed_ver=$(apt -qq list --installed ceph-libboost*-dev 2>/dev/null |
                               grep -e 'libboost[0-9].[0-9]\+-dev' |
                               cut -d' ' -f2 |
@@ -225,7 +206,6 @@ function install_boost_on_ubuntu {
 }
 
 function install_libzbd_on_ubuntu {
-    in_jenkins && echo "CI_DEBUG: Running install_libzbd_on_ubuntu() in install-deps.sh"
     local codename=$1
     local project=libzbd
     local sha1=1fadde94b08fab574b17637c2bebd2b1e7f9127b
@@ -235,6 +215,19 @@ function install_libzbd_on_ubuntu {
         $codename \
         check \
         libzbd-dev
+}
+
+function install_libpmem_on_ubuntu {
+    local codename=$1
+    local project=pmem
+    local sha1=7c18b4b1413ae965ea8bcbfc69eb9784f9212319
+    install_pkg_on_ubuntu \
+        $project \
+        $sha1 \
+        $codename \
+        check \
+        libpmem-dev \
+        libpmemobj-dev
 }
 
 function version_lt {
@@ -292,6 +285,7 @@ if [ x$(uname)x = xFreeBSDx ]; then
         devel/py-argparse \
         devel/py-nose \
         devel/py-prettytable \
+        devel/py-yaml \
         www/py-routes \
         www/py-flask \
         www/node \
@@ -311,9 +305,10 @@ else
     [ $WITH_SEASTAR ] && with_seastar=true || with_seastar=false
     [ $WITH_JAEGER ] && with_jaeger=true || with_jaeger=false
     [ $WITH_ZBD ] && with_zbd=true || with_zbd=false
+    [ $WITH_PMEM ] && with_pmem=true || with_pmem=false
     source /etc/os-release
     case "$ID" in
-    debian|ubuntu|devuan|elementary)
+    debian|ubuntu|devuan|elementary|softiron)
         echo "Using apt-get to install dependencies"
         $SUDO apt-get install -y devscripts equivs
         $SUDO apt-get install -y dpkg-dev
@@ -323,6 +318,11 @@ else
                 ensure_decent_gcc_on_ubuntu 9 bionic
                 [ ! $NO_BOOST_PKGS ] && install_boost_on_ubuntu bionic
                 $with_zbd && install_libzbd_on_ubuntu bionic
+                ;;
+            *Focal*)
+                [ ! $NO_BOOST_PKGS ] && install_boost_on_ubuntu focal
+                $with_zbd && install_libzbd_on_ubuntu focal
+                $with_pmem && install_libpmem_on_ubuntu focal
                 ;;
             *)
                 $SUDO apt-get install -y gcc
@@ -334,9 +334,8 @@ else
         fi
         touch $DIR/status
 
-        in_jenkins && echo "CI_DEBUG: Running munge_debian_control() in install-deps.sh"
 	backports=""
-	control=$(munge_debian_control "$VERSION" "$with_seastar" "$for_make_check" "debian/control")
+	control=$(munge_debian_control "$VERSION" "debian/control")
         case "$VERSION" in
             *squeeze*|*wheezy*)
                 backports="-t $codename-backports"
@@ -346,9 +345,21 @@ else
 	# make a metapackage that expresses the build dependencies,
 	# install it, rm the .deb; then uninstall the package as its
 	# work is done
-        in_jenkins && echo "CI_DEBUG: Running mk-build-deps in install-deps.sh"
-	$SUDO env DEBIAN_FRONTEND=noninteractive mk-build-deps --install --remove --tool="apt-get -y --no-install-recommends $backports" $control || exit 1
-        in_jenkins && echo "CI_DEBUG: Removing ceph-build-deps"
+	build_profiles=""
+	if $for_make_check; then
+	    build_profiles+=",pkg.ceph.check"
+	fi
+	if $with_seastar; then
+	    build_profiles+=",pkg.ceph.crimson"
+	fi
+	if $with_jaeger; then
+	    build_profiles+=",pkg.ceph.jaeger"
+	fi
+
+	$SUDO env DEBIAN_FRONTEND=noninteractive mk-build-deps \
+	      --build-profiles "${build_profiles#,}" \
+	      --install --remove \
+	      --tool="apt-get -y --no-install-recommends $backports" $control || exit 1
 	$SUDO env DEBIAN_FRONTEND=noninteractive apt-get -y remove ceph-build-deps
 	if [ "$control" != "debian/control" ] ; then rm $control; fi
         ;;
@@ -373,13 +384,13 @@ else
                     $SUDO dnf config-manager --add-repo http://apt-mirror.front.sepia.ceph.com/lab-extras/8/
                     $SUDO dnf config-manager --setopt=apt-mirror.front.sepia.ceph.com_lab-extras_8_.gpgcheck=0 --save
                 elif test $ID = rhel -a $MAJOR_VERSION = 8 ; then
-                    $SUDO subscription-manager repos --enable "codeready-builder-for-rhel-8-${ARCH}-rpms"
+                    $SUDO dnf config-manager --set-enabled "codeready-builder-for-rhel-8-${ARCH}-rpms"
 		    $SUDO dnf config-manager --add-repo http://apt-mirror.front.sepia.ceph.com/lab-extras/8/
 		    $SUDO dnf config-manager --setopt=apt-mirror.front.sepia.ceph.com_lab-extras_8_.gpgcheck=0 --save
                 fi
                 ;;
         esac
-        munge_ceph_spec_in $with_seastar $with_zbd $for_make_check $DIR/ceph.spec
+        munge_ceph_spec_in $with_seastar $with_zbd $for_make_check $with_jaeger $DIR/ceph.spec
         # for python3_pkgversion macro defined by python-srpm-macros, which is required by python3-devel
         $SUDO dnf install -y python3-devel
         $SUDO $builddepcmd $DIR/ceph.spec 2>&1 | tee $DIR/yum-builddep.out
@@ -391,7 +402,7 @@ else
         echo "Using zypper to install dependencies"
         zypp_install="zypper --gpg-auto-import-keys --non-interactive install --no-recommends"
         $SUDO $zypp_install systemd-rpm-macros rpm-build || exit 1
-        munge_ceph_spec_in $with_seastar false $for_make_check $DIR/ceph.spec
+        munge_ceph_spec_in $with_seastar false $for_make_check $with_jaeger $DIR/ceph.spec
         $SUDO $zypp_install $(rpmspec -q --buildrequires $DIR/ceph.spec) || exit 1
         ;;
     *)
@@ -402,7 +413,6 @@ else
 fi
 
 function populate_wheelhouse() {
-    in_jenkins && echo "CI_DEBUG: Running populate_wheelhouse() in install-deps.sh"
     local install=$1
     shift
 
@@ -410,14 +420,16 @@ function populate_wheelhouse() {
     # of pip matters when it comes to using wheel packages
     PIP_OPTS="--timeout 300 --exists-action i"
     pip $PIP_OPTS $install \
-      'setuptools >= 0.8' 'pip >= 7.0' 'wheel >= 0.24' 'tox >= 2.9.1' || return 1
+      'setuptools >= 0.8' 'pip >= 21.0' 'wheel >= 0.24' 'tox >= 2.9.1' || return 1
     if test $# != 0 ; then
-        pip $PIP_OPTS $install $@ || return 1
+        # '--use-feature=fast-deps --use-deprecated=legacy-resolver' added per
+        # https://github.com/pypa/pip/issues/9818 These should be able to be
+        # removed at some point in the future.
+        pip --use-feature=fast-deps --use-deprecated=legacy-resolver $PIP_OPTS $install $@ || return 1
     fi
 }
 
 function activate_virtualenv() {
-    in_jenkins && echo "CI_DEBUG: Running activate_virtualenv() in install-deps.sh"
     local top_srcdir=$1
     local env_dir=$top_srcdir/install-deps-python3
 
@@ -433,7 +445,6 @@ function activate_virtualenv() {
 }
 
 function preload_wheels_for_tox() {
-    in_jenkins && echo "CI_DEBUG: Running preload_wheels_for_tox() in install-deps.sh"
     local ini=$1
     shift
     pushd . > /dev/null
@@ -476,5 +487,3 @@ if $for_make_check; then
     rm -rf $XDG_CACHE_HOME
     type git > /dev/null || (echo "Dashboard uses git to pull dependencies." ; false)
 fi
-
-in_jenkins && echo "CI_DEBUG: End install-deps.sh" || true

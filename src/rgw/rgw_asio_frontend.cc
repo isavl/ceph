@@ -55,12 +55,15 @@ using tcp_stream = boost::beast::basic_stream<tcp, executor_type>;
 using timeout_timer = rgw::basic_timeout_timer<ceph::coarse_mono_clock,
       executor_type, Connection>;
 
-using parse_buffer = boost::beast::flat_static_buffer<65536>;
+static constexpr size_t parse_buffer_size = 65536;
+using parse_buffer = boost::beast::flat_static_buffer<parse_buffer_size>;
 
 // use mmap/mprotect to allocate 512k coroutine stacks
 auto make_stack_allocator() {
   return boost::context::protected_fixedsize_stack{512*1024};
 }
+
+using namespace std;
 
 template <typename Stream>
 class StreamIO : public rgw::asio::ClientIO {
@@ -176,15 +179,13 @@ using SharedMutex = ceph::async::SharedMutex<boost::asio::io_context::executor_t
 template <typename Stream>
 void handle_connection(boost::asio::io_context& context,
                        RGWProcessEnv& env, Stream& stream,
-                       timeout_timer& timeout,
+                       timeout_timer& timeout, size_t header_limit,
                        parse_buffer& buffer, bool is_ssl,
                        SharedMutex& pause_mutex,
                        rgw::dmclock::Scheduler *scheduler,
                        boost::system::error_code& ec,
                        yield_context yield)
 {
-  // limit header to 4k, since we read it all into a single flat_buffer
-  static constexpr size_t header_limit = 4096;
   // don't impose a limit on the body, since we read it in pieces
   static constexpr size_t body_limit = std::numeric_limits<size_t>::max();
 
@@ -237,7 +238,7 @@ void handle_connection(boost::asio::io_context& context,
       }
 
       // process the request
-      RGWRequest req{env.store->getRados()->get_new_req_id()};
+      RGWRequest req{env.store->get_new_req_id()};
 
       auto& socket = stream.lowest_layer();
       const auto& remote_endpoint = socket.remote_endpoint(ec);
@@ -256,15 +257,19 @@ void handle_connection(boost::asio::io_context& context,
                                   rgw::io::add_conlen_controlling(
                                     &real_client))));
       RGWRestfulIO client(cct, &real_client_io);
-      auto y = optional_yield{context, yield};
+      optional_yield y = null_yield;
+      if (cct->_conf->rgw_beast_enable_async) {
+        y = optional_yield{context, yield};
+      }
       int http_ret = 0;
       string user = "-";
       const auto started = ceph::coarse_real_clock::now();
       ceph::coarse_real_clock::duration latency{};
-
       process_request(env.store, env.rest, &req, env.uri_prefix,
                       *env.auth_registry, &client, env.olog, y,
-                      scheduler, &user, &latency, &http_ret);
+                      scheduler, &user, &latency,
+                      env.ratelimiting->get_active(),
+                      &http_ret);
 
       if (cct->_conf->subsys.should_gather(dout_subsys, 1)) {
         // access log line elements begin per Apache Combined Log Format with additions following
@@ -366,6 +371,7 @@ class AsioFrontend {
   RGWFrontendConfig* conf;
   boost::asio::io_context context;
   ceph::timespan request_timeout = std::chrono::milliseconds(REQUEST_TIMEOUT);
+  size_t header_limit = 16384;
 #ifdef WITH_RADOSGW_BEAST_OPENSSL
   boost::optional<ssl::context> ssl_context;
   int get_config_key_val(string name,
@@ -433,7 +439,7 @@ class AsioFrontend {
   void stop();
   void join();
   void pause();
-  void unpause(rgw::sal::RGWRadosStore* store, rgw_auth_registry_ptr_t);
+  void unpause(rgw::sal::Store* store, rgw_auth_registry_ptr_t);
 };
 
 unsigned short parse_port(const char *input, boost::system::error_code& ec)
@@ -528,15 +534,32 @@ int AsioFrontend::init()
 // Setting global timeout
   auto timeout = config.find("request_timeout_ms");
   if (timeout != config.end()) {
-    auto timeout_number = ceph::parse<uint64_t>(timeout->second.data());
+    auto timeout_number = ceph::parse<uint64_t>(timeout->second);
     if (timeout_number) {
       request_timeout =  std::chrono::milliseconds(*timeout_number);
     } else {
       lderr(ctx()) << "WARNING: invalid value for request_timeout_ms: "
-      << timeout->second.data() << " setting it to the default value: "
+      << timeout->second << " setting it to the default value: "
       << REQUEST_TIMEOUT << dendl;
     }
-  } 
+  }
+
+  auto max_header_size = config.find("max_header_size");
+  if (max_header_size != config.end()) {
+    auto limit = ceph::parse<uint64_t>(max_header_size->second);
+    if (!limit) {
+      lderr(ctx()) << "WARNING: invalid value for max_header_size: "
+          << max_header_size->second << ", using the default value: "
+          << header_limit << dendl;
+    } else if (*limit > parse_buffer_size) { // can't exceed parse buffer size
+      header_limit = parse_buffer_size;
+      lderr(ctx()) << "WARNING: max_header_size " << max_header_size->second
+          << " capped at maximum value " << header_limit << dendl;
+    } else {
+      header_limit = *limit;
+    }
+  }
+
 #ifdef WITH_RADOSGW_BEAST_OPENSSL
   int r = init_ssl();
   if (r < 0) {
@@ -647,13 +670,13 @@ class ExpandMetaVar {
   map<string, string> meta_map;
 
 public:
-  ExpandMetaVar(RGWSI_Zone *zone_svc) {
+  ExpandMetaVar(rgw::sal::Zone* zone_svc) {
     meta_map["realm"] = zone_svc->get_realm().get_name();
     meta_map["realm_id"] = zone_svc->get_realm().get_id();
     meta_map["zonegroup"] = zone_svc->get_zonegroup().get_name();
     meta_map["zonegroup_id"] = zone_svc->get_zonegroup().get_id();
-    meta_map["zone"] = zone_svc->zone_name();
-    meta_map["zone_id"] = zone_svc->zone_id().id;
+    meta_map["zone"] = zone_svc->get_name();
+    meta_map["zone_id"] = zone_svc->get_id().id;
   }
 
   string process_str(const string& in);
@@ -727,8 +750,7 @@ int AsioFrontend::get_config_key_val(string name,
     return -EINVAL;
   }
 
-  auto svc = env.store->svc()->config_key;
-  int r = svc->get(name, true, pbl);
+  int r = env.store->get_config_key_val(name, pbl);
   if (r < 0) {
     lderr(ctx()) << type << " was not found: " << name << dendl;
     return r;
@@ -884,7 +906,7 @@ int AsioFrontend::init_ssl()
       key_is_cert = true;
     }
 
-    ExpandMetaVar emv(env.store->svc()->zone);
+    ExpandMetaVar emv(env.store->get_zone());
 
     cert = emv.process_str(*cert);
     key = emv.process_str(*key);
@@ -980,8 +1002,9 @@ void AsioFrontend::accept(Listener& l, boost::system::error_code ec)
           return;
         }
         conn->buffer.consume(bytes);
-        handle_connection(context, env, stream, timeout, conn->buffer, true,
-                          pause_mutex, scheduler.get(), ec, yield);
+        handle_connection(context, env, stream, timeout, header_limit,
+                          conn->buffer, true, pause_mutex, scheduler.get(),
+                          ec, yield);
         if (!ec) {
           // ssl shutdown (ignoring errors)
           stream.async_shutdown(yield[ec]);
@@ -998,8 +1021,9 @@ void AsioFrontend::accept(Listener& l, boost::system::error_code ec)
         auto c = connections.add(*conn);
         auto timeout = timeout_timer{context.get_executor(), request_timeout, conn};
         boost::system::error_code ec;
-        handle_connection(context, env, conn->socket, timeout, conn->buffer,
-                          false, pause_mutex, scheduler.get(), ec, yield);
+        handle_connection(context, env, conn->socket, timeout, header_limit,
+                          conn->buffer, false, pause_mutex, scheduler.get(),
+                          ec, yield);
         conn->socket.shutdown(tcp_socket::shutdown_both, ec);
       }, make_stack_allocator());
   }
@@ -1018,11 +1042,12 @@ int AsioFrontend::run()
   work.emplace(boost::asio::make_work_guard(context));
 
   for (int i = 0; i < thread_count; i++) {
-    threads.emplace_back([=] {
+    threads.emplace_back([=]() noexcept {
       // request warnings on synchronous librados calls in this thread
       is_asio_thread = true;
-      boost::system::error_code ec;
-      context.run(ec);
+      // Have uncaught exceptions kill the process and give a
+      // stacktrace, not be swallowed.
+      context.run();
     });
   }
   return 0;
@@ -1078,7 +1103,7 @@ void AsioFrontend::pause()
   }
 }
 
-void AsioFrontend::unpause(rgw::sal::RGWRadosStore* const store,
+void AsioFrontend::unpause(rgw::sal::Store* const store,
                            rgw_auth_registry_ptr_t auth_registry)
 {
   env.store = store;
@@ -1142,7 +1167,7 @@ void RGWAsioFrontend::pause_for_new_config()
 }
 
 void RGWAsioFrontend::unpause_with_new_config(
-  rgw::sal::RGWRadosStore* const store,
+  rgw::sal::Store* const store,
   rgw_auth_registry_ptr_t auth_registry
 ) {
   impl->unpause(store, std::move(auth_registry));

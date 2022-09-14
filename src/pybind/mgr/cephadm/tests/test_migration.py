@@ -5,7 +5,7 @@ from ceph.utils import datetime_to_str, datetime_now
 from cephadm import CephadmOrchestrator
 from cephadm.inventory import SPEC_STORE_PREFIX
 from cephadm.migrations import LAST_MIGRATION
-from cephadm.tests.fixtures import _run_cephadm, wait, with_host
+from cephadm.tests.fixtures import _run_cephadm, wait, with_host, receive_agent_metadata_all_hosts
 from cephadm.serve import CephadmServe
 from tests import mock
 
@@ -30,6 +30,7 @@ def test_migrate_scheduler(cephadm_module: CephadmOrchestrator):
             assert cephadm_module.migration_current == 0
 
             CephadmServe(cephadm_module)._refresh_hosts_and_daemons()
+            receive_agent_metadata_all_hosts(cephadm_module)
             cephadm_module.migration.migrate()
 
             CephadmServe(cephadm_module)._apply_all_services()

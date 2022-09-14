@@ -54,11 +54,13 @@
 #define tracepoint(...)
 #endif
 
-using std::string;
-using std::map;
-using std::set;
-using std::vector;
 using std::list;
+using std::map;
+using std::pair;
+using std::set;
+using std::string;
+using std::stringstream;
+using std::vector;
 
 #define dout_subsys ceph_subsys_rados
 #undef dout_prefix
@@ -2594,7 +2596,7 @@ int64_t librados::Rados::pool_lookup(const char *name)
 
 int librados::Rados::pool_reverse_lookup(int64_t id, std::string *name)
 {
-  return client->pool_get_name(id, name, true);
+  return client->pool_get_name(id, name);
 }
 
 int librados::Rados::mon_command(string cmd, const bufferlist& inbl,

@@ -3,9 +3,9 @@ Automatically scale MDSs based on status of the file-system using the FSMap
 """
 
 import logging
-from typing import Optional, List, Set
+from typing import Any, Optional
 from mgr_module import MgrModule, NotifyType
-from orchestrator._interface import MDSSpec, ServiceSpec
+from ceph.deployment.service_spec import ServiceSpec
 import orchestrator
 import copy
 
@@ -17,7 +17,8 @@ class MDSAutoscaler(orchestrator.OrchestratorClientMixin, MgrModule):
     MDS autoscaler.
     """
     NOTIFY_TYPES = [NotifyType.fs_map]
-    def __init__(self, *args, **kwargs):
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         MgrModule.__init__(self, *args, **kwargs)
         self.set_mgr(self)
 
@@ -31,12 +32,12 @@ class MDSAutoscaler(orchestrator.OrchestratorClientMixin, MgrModule):
             return completion.result[0]
         return None
 
-    def update_daemon_count(self, spec: ServiceSpec, fs_name: str, abscount: int) -> MDSSpec:
+    def update_daemon_count(self, spec: ServiceSpec, fs_name: str, abscount: int) -> ServiceSpec:
         ps = copy.deepcopy(spec.placement)
         ps.count = abscount
-        newspec = MDSSpec(service_type=spec.service_type,
-                          service_id=spec.service_id,
-                          placement=ps)
+        newspec = ServiceSpec(service_type=spec.service_type,
+                              service_id=spec.service_id,
+                              placement=ps)
         return newspec
 
     def get_required_standby_count(self, fs_map: dict, fs_name: str) -> int:
@@ -53,7 +54,7 @@ class MDSAutoscaler(orchestrator.OrchestratorClientMixin, MgrModule):
                 return fs['mdsmap']['max_mds']
         assert False
 
-    def verify_and_manage_mds_instance(self, fs_map: dict, fs_name: str):
+    def verify_and_manage_mds_instance(self, fs_map: dict, fs_name: str) -> None:
         assert fs_map is not None
 
         try:
@@ -85,7 +86,7 @@ class MDSAutoscaler(orchestrator.OrchestratorClientMixin, MgrModule):
             self.log.exception(f"fs {fs_name}: exception while updating service: {e}")
             pass
 
-    def notify(self, notify_type, notify_id):
+    def notify(self, notify_type: NotifyType, notify_id: str) -> None:
         if notify_type != NotifyType.fs_map:
             return
         fs_map = self.get('fs_map')

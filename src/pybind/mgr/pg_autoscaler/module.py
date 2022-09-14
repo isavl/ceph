@@ -128,6 +128,14 @@ class PgAutoscaler(MgrModule):
             default=60),
 
         Option(
+            name='threshold',
+            type='float',
+            desc='scaling threshold',
+            long_desc=('The factor by which the `NEW PG_NUM` must vary from the current'
+                       '`PG_NUM` before being accepted. Cannot be less than 1.0'),
+            default=3.0,
+            min=1.0),
+        Option(
             name='noautoscale',
             type='bool',
             desc='global autoscale flag',
@@ -146,6 +154,7 @@ class PgAutoscaler(MgrModule):
         if TYPE_CHECKING:
             self.sleep_interval = 60
             self.mon_target_pg_per_osd = 0
+            self.threshold = 3.0
             self.noautoscale = False
 
     def config_notify(self) -> None:
@@ -233,6 +242,17 @@ class PgAutoscaler(MgrModule):
                     str(p['bulk'])
                 ])
             return 0, table.get_string(), ''
+
+    @CLIWriteCommand("osd pool set threshold")
+    def set_scaling_threshold(self, num: float) -> Tuple[int, str, str]:
+        """
+        set the autoscaler threshold 
+        A.K.A. the factor by which the new PG_NUM must vary from the existing PG_NUM
+        """
+        if num < 1.0:
+            return 22, "", "threshold cannot be set less than 1.0"
+        self.set_module_option("threshold", num)
+        return 0, "threshold updated", ""
 
     def complete_all_progress_events(self) -> None:
         for pool_id in list(self._event):
@@ -615,10 +635,10 @@ class PgAutoscaler(MgrModule):
             self,
             osdmap: OSDMap,
             pools: Dict[str, Dict[str, Any]],
-            threshold: float = 3.0,
     ) -> Tuple[List[Dict[str, Any]],
                Dict[int, CrushSubtreeResourceStatus]]:
-        assert threshold >= 2.0
+        threshold = self.threshold
+        assert threshold >= 1.0
 
         crush_map = osdmap.get_crush()
         root_map, overlapped_roots = self.get_subtree_resource_status(osdmap, crush_map)
@@ -668,8 +688,6 @@ class PgAutoscaler(MgrModule):
         if osdmap.get_require_osd_release() < 'nautilus':
             return
         pools = osdmap.get_pools_by_name()
-        self.log.debug("pool: {0}".format(json.dumps(pools, indent=4,
-                                sort_keys=True)))
         ps, root_map = self._get_pool_status(osdmap, pools)
 
         # Anyone in 'warn', set the health message for them and then

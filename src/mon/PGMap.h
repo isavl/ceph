@@ -197,7 +197,7 @@ public:
   }
 
   ceph_statfs get_statfs(OSDMap &osdmap,
-                         boost::optional<int64_t> data_pool) const;
+                         std::optional<int64_t> data_pool) const;
 
   int64_t get_rule_avail(int ruleno) const {
     auto i = avail_space_by_rule.find(ruleno);
@@ -461,14 +461,13 @@ public:
   void dump_pool_stats_and_io_rate(int64_t poolid, const OSDMap &osd_map, ceph::Formatter *f,
 				   std::stringstream *ss) const;
 
-  void dump_pg_stats_plain(
+  static void dump_pg_stats_plain(
     std::ostream& ss,
     const mempool::pgmap::unordered_map<pg_t, pg_stat_t>& pg_stats,
-    bool brief) const;
+    bool brief);
   void get_stuck_stats(
     int types, const utime_t cutoff,
     mempool::pgmap::unordered_map<pg_t, pg_stat_t>& stuck_pgs) const;
-  bool get_stuck_counts(const utime_t cutoff, std::map<std::string, int>& note) const;
   void dump_stuck(ceph::Formatter *f, int types, utime_t cutoff) const;
   void dump_stuck_plain(std::ostream& ss, int types, utime_t cutoff) const;
   int dump_stuck_pg_stats(std::stringstream &ds,

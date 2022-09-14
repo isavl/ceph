@@ -12,6 +12,7 @@ from ceph.deployment import inventory
 from ceph.deployment.service_spec import ServiceSpec, PlacementSpec
 from ceph.utils import str_to_datetime, datetime_to_str, datetime_now
 from orchestrator import OrchestratorError, HostSpec, OrchestratorEvent, service_to_daemon_types
+from cephadm.services.cephadmservice import CephadmDaemonDeploySpec
 
 from .utils import resolve_ip
 from .migrations import queue_migrate_nfs_spec
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 HOST_CACHE_PREFIX = "host."
 SPEC_STORE_PREFIX = "spec."
+AGENT_CACHE_PREFIX = 'agent.'
 
 
 class Inventory:
@@ -438,10 +440,12 @@ class HostCache():
         self.osdspec_previews = {}     # type: Dict[str, List[Dict[str, Any]]]
         self.osdspec_last_applied = {}  # type: Dict[str, Dict[str, datetime.datetime]]
         self.networks = {}             # type: Dict[str, Dict[str, Dict[str, List[str]]]]
+        self.last_network_update = {}   # type: Dict[str, datetime.datetime]
         self.last_device_update = {}   # type: Dict[str, datetime.datetime]
         self.last_device_change = {}   # type: Dict[str, datetime.datetime]
         self.daemon_refresh_queue = []  # type: List[str]
         self.device_refresh_queue = []  # type: List[str]
+        self.network_refresh_queue = []  # type: List[str]
         self.osdspec_previews_refresh_queue = []  # type: List[str]
 
         # host -> daemon name -> dict
@@ -452,6 +456,8 @@ class HostCache():
         self.registry_login_queue: Set[str] = set()
 
         self.scheduled_daemon_actions: Dict[str, Dict[str, str]] = {}
+
+        self.metadata_up_to_date = {}  # type: Dict[str, bool]
 
     def load(self):
         # type: () -> None
@@ -472,6 +478,7 @@ class HostCache():
                 # for services, we ignore the persisted last_*_update
                 # and always trigger a new scrape on mgr restart.
                 self.daemon_refresh_queue.append(host)
+                self.network_refresh_queue.append(host)
                 self.daemons[host] = {}
                 self.osdspec_previews[host] = []
                 self.osdspec_last_applied[host] = {}
@@ -498,6 +505,7 @@ class HostCache():
                     self.last_host_check[host] = str_to_datetime(j['last_host_check'])
                 self.registry_login_queue.add(host)
                 self.scheduled_daemon_actions[host] = j.get('scheduled_daemon_actions', {})
+                self.metadata_up_to_date[host] = j.get('metadata_up_to_date', False)
 
                 self.mgr.log.debug(
                     'HostCache.load: host %s has %d daemons, '
@@ -537,11 +545,10 @@ class HostCache():
             return True
         return False
 
-    def update_host_devices_networks(
+    def update_host_devices(
             self,
             host: str,
             dls: List[inventory.Device],
-            nets: Dict[str, Dict[str, List[str]]]
     ) -> None:
         if (
                 host not in self.devices
@@ -551,7 +558,14 @@ class HostCache():
             self.last_device_change[host] = datetime_now()
         self.last_device_update[host] = datetime_now()
         self.devices[host] = dls
+
+    def update_host_networks(
+            self,
+            host: str,
+            nets: Dict[str, Dict[str, List[str]]]
+    ) -> None:
         self.networks[host] = nets
+        self.last_network_update[host] = datetime_now()
 
     def update_daemon_config_deps(self, host: str, name: str, deps: List[str], stamp: datetime.datetime) -> None:
         self.daemon_config_deps[host][name] = {
@@ -598,6 +612,7 @@ class HostCache():
         self.daemon_config_deps[host] = {}
         self.daemon_refresh_queue.append(host)
         self.device_refresh_queue.append(host)
+        self.network_refresh_queue.append(host)
         self.osdspec_previews_refresh_queue.append(host)
         self.registry_login_queue.add(host)
         self.last_client_files[host] = {}
@@ -627,6 +642,13 @@ class HostCache():
             del self.last_device_update[host]
         self.mgr.event.set()
 
+    def invalidate_host_networks(self, host):
+        # type: (str) -> None
+        self.network_refresh_queue.append(host)
+        if host in self.last_network_update:
+            del self.last_network_update[host]
+        self.mgr.event.set()
+
     def distribute_new_registry_login_info(self) -> None:
         self.registry_login_queue = set(self.mgr.inventory.keys())
 
@@ -642,6 +664,8 @@ class HostCache():
             j['last_daemon_update'] = datetime_to_str(self.last_daemon_update[host])
         if host in self.last_device_update:
             j['last_device_update'] = datetime_to_str(self.last_device_update[host])
+        if host in self.last_network_update:
+            j['last_network_update'] = datetime_to_str(self.last_network_update[host])
         if host in self.last_device_change:
             j['last_device_change'] = datetime_to_str(self.last_device_change[host])
         if host in self.daemons:
@@ -671,6 +695,8 @@ class HostCache():
             j['last_client_files'] = self.last_client_files[host]
         if host in self.scheduled_daemon_actions:
             j['scheduled_daemon_actions'] = self.scheduled_daemon_actions[host]
+        if host in self.metadata_up_to_date:
+            j['metadata_up_to_date'] = self.metadata_up_to_date[host]
 
         self.mgr.set_store(HOST_CACHE_PREFIX + host, json.dumps(j))
 
@@ -698,6 +724,8 @@ class HostCache():
             del self.last_daemon_update[host]
         if host in self.last_device_update:
             del self.last_device_update[host]
+        if host in self.last_network_update:
+            del self.last_network_update[host]
         if host in self.last_device_change:
             del self.last_device_change[host]
         if host in self.daemon_config_deps:
@@ -712,6 +740,52 @@ class HostCache():
         # type: () -> List[str]
         return list(self.daemons)
 
+    def get_schedulable_hosts(self) -> List[HostSpec]:
+        """
+        Returns all usable hosts that went through _refresh_host_daemons().
+
+        This mitigates a potential race, where new host was added *after*
+        ``_refresh_host_daemons()`` was called, but *before*
+        ``_apply_all_specs()`` was called. thus we end up with a hosts
+        where daemons might be running, but we have not yet detected them.
+        """
+        return [
+            h for h in self.mgr.inventory.all_specs()
+            if (
+                self.host_had_daemon_refresh(h.hostname)
+                and '_no_schedule' not in h.labels
+            )
+        ]
+
+    def get_non_draining_hosts(self) -> List[HostSpec]:
+        """
+        Returns all hosts that do not have _no_schedule label.
+
+        Useful for the agent who needs this specific list rather than the
+        schedulable_hosts since the agent needs to be deployed on hosts with
+        no daemon refresh
+        """
+        return [
+            h for h in self.mgr.inventory.all_specs() if '_no_schedule' not in h.labels
+        ]
+
+    def get_unreachable_hosts(self) -> List[HostSpec]:
+        """
+        Return all hosts that are offline or in maintenance mode.
+
+        The idea is we should not touch the daemons on these hosts (since
+        in theory the hosts are inaccessible so we CAN'T touch them) but
+        we still want to count daemons that exist on these hosts toward the
+        placement so daemons on these hosts aren't just moved elsewhere
+        """
+        return [
+            h for h in self.mgr.inventory.all_specs()
+            if (
+                h.status.lower() in ['maintenance', 'offline']
+                or h.hostname in self.mgr.offline_hosts
+            )
+        ]
+
     def get_facts(self, host: str) -> Dict[str, Any]:
         return self.facts.get(host, {})
 
@@ -722,6 +796,13 @@ class HostCache():
     def get_daemons(self):
         # type: () -> List[orchestrator.DaemonDescription]
         return list(self._get_daemons())
+
+    def get_error_daemons(self) -> List[orchestrator.DaemonDescription]:
+        r = []
+        for dd in self._get_daemons():
+            if dd.status is not None and dd.status == orchestrator.DaemonDescriptionStatus.error:
+                r.append(dd)
+        return r
 
     def get_daemons_by_host(self, host: str) -> List[orchestrator.DaemonDescription]:
         return list(self.daemons.get(host, {}).values())
@@ -802,6 +883,8 @@ class HostCache():
             seconds=self.mgr.daemon_cache_timeout)
         if host not in self.last_daemon_update or self.last_daemon_update[host] < cutoff:
             return True
+        if not self.mgr.cache.host_metadata_up_to_date(host):
+            return True
         return False
 
     def host_needs_facts_refresh(self, host):
@@ -812,6 +895,8 @@ class HostCache():
         cutoff = datetime_now() - datetime.timedelta(
             seconds=self.mgr.facts_cache_timeout)
         if host not in self.last_facts_update or self.last_facts_update[host] < cutoff:
+            return True
+        if not self.mgr.cache.host_metadata_up_to_date(host):
             return True
         return False
 
@@ -847,6 +932,24 @@ class HostCache():
         cutoff = datetime_now() - datetime.timedelta(
             seconds=self.mgr.device_cache_timeout)
         if host not in self.last_device_update or self.last_device_update[host] < cutoff:
+            return True
+        if not self.mgr.cache.host_metadata_up_to_date(host):
+            return True
+        return False
+
+    def host_needs_network_refresh(self, host):
+        # type: (str) -> bool
+        if host in self.mgr.offline_hosts:
+            logger.debug(f'Host "{host}" marked as offline. Skipping network refresh')
+            return False
+        if host in self.network_refresh_queue:
+            self.network_refresh_queue.remove(host)
+            return True
+        cutoff = datetime_now() - datetime.timedelta(
+            seconds=self.mgr.device_cache_timeout)
+        if host not in self.last_network_update or self.last_network_update[host] < cutoff:
+            return True
+        if not self.mgr.cache.host_metadata_up_to_date(host):
             return True
         return False
 
@@ -888,6 +991,21 @@ class HostCache():
             self.registry_login_queue.remove(host)
             return True
         return False
+
+    def host_metadata_up_to_date(self, host: str) -> bool:
+        if host not in self.metadata_up_to_date or not self.metadata_up_to_date[host]:
+            return False
+        return True
+
+    def all_host_metadata_up_to_date(self) -> bool:
+        unreachables = [h.hostname for h in self.get_unreachable_hosts()]
+        if [h for h in self.get_hosts() if (not self.host_metadata_up_to_date(h) and h not in unreachables)]:
+            # this function is primarily for telling if it's safe to try and apply a service
+            # spec. Since offline/maintenance hosts aren't considered in that process anyway
+            # we don't want to return False if the host without up-to-date metadata is in one
+            # of those two categories.
+            return False
+        return True
 
     def add_daemon(self, host, dd):
         # type: (str, orchestrator.DaemonDescription) -> None
@@ -946,6 +1064,95 @@ class HostCache():
         assert not daemon.startswith('ha-rgw.')
 
         return self.scheduled_daemon_actions.get(host, {}).get(daemon)
+
+
+class AgentCache():
+    """
+    AgentCache is used for storing metadata about agent daemons that must be kept
+    through MGR failovers
+    """
+
+    def __init__(self, mgr):
+        # type: (CephadmOrchestrator) -> None
+        self.mgr: CephadmOrchestrator = mgr
+        self.agent_config_deps = {}   # type: Dict[str, Dict[str,Any]]
+        self.agent_counter = {}  # type: Dict[str, int]
+        self.agent_timestamp = {}  # type: Dict[str, datetime.datetime]
+        self.agent_keys = {}  # type: Dict[str, str]
+        self.agent_ports = {}  # type: Dict[str, int]
+        self.sending_agent_message = {}  # type: Dict[str, bool]
+
+    def load(self):
+        # type: () -> None
+        for k, v in self.mgr.get_store_prefix(AGENT_CACHE_PREFIX).items():
+            host = k[len(AGENT_CACHE_PREFIX):]
+            if host not in self.mgr.inventory:
+                self.mgr.log.warning('removing stray AgentCache record for agent on %s' % (
+                    host))
+                self.mgr.set_store(k, None)
+            try:
+                j = json.loads(v)
+                self.agent_config_deps[host] = {}
+                conf_deps = j.get('agent_config_deps', {})
+                if conf_deps:
+                    conf_deps['last_config'] = str_to_datetime(conf_deps['last_config'])
+                self.agent_config_deps[host] = conf_deps
+                self.agent_counter[host] = int(j.get('agent_counter', 1))
+                self.agent_timestamp[host] = str_to_datetime(
+                    j.get('agent_timestamp', datetime_to_str(datetime_now())))
+                self.agent_keys[host] = str(j.get('agent_keys', ''))
+                agent_port = int(j.get('agent_ports', 0))
+                if agent_port:
+                    self.agent_ports[host] = agent_port
+
+            except Exception as e:
+                self.mgr.log.warning('unable to load cached state for agent on host %s: %s' % (
+                    host, e))
+                pass
+
+    def save_agent(self, host: str) -> None:
+        j: Dict[str, Any] = {}
+        if host in self.agent_config_deps:
+            j['agent_config_deps'] = {
+                'deps': self.agent_config_deps[host].get('deps', []),
+                'last_config': datetime_to_str(self.agent_config_deps[host]['last_config']),
+            }
+        if host in self.agent_counter:
+            j['agent_counter'] = self.agent_counter[host]
+        if host in self.agent_keys:
+            j['agent_keys'] = self.agent_keys[host]
+        if host in self.agent_ports:
+            j['agent_ports'] = self.agent_ports[host]
+        if host in self.agent_timestamp:
+            j['agent_timestamp'] = datetime_to_str(self.agent_timestamp[host])
+
+        self.mgr.set_store(AGENT_CACHE_PREFIX + host, json.dumps(j))
+
+    def update_agent_config_deps(self, host: str, deps: List[str], stamp: datetime.datetime) -> None:
+        self.agent_config_deps[host] = {
+            'deps': deps,
+            'last_config': stamp,
+        }
+
+    def get_agent_last_config_deps(self, host: str) -> Tuple[Optional[List[str]], Optional[datetime.datetime]]:
+        if host in self.agent_config_deps:
+            return self.agent_config_deps[host].get('deps', []), \
+                self.agent_config_deps[host].get('last_config', None)
+        return None, None
+
+    def messaging_agent(self, host: str) -> bool:
+        if host not in self.sending_agent_message or not self.sending_agent_message[host]:
+            return False
+        return True
+
+    def agent_config_successfully_delivered(self, daemon_spec: CephadmDaemonDeploySpec) -> None:
+        # agent successfully received new config. Update config/deps
+        assert daemon_spec.service_name == 'agent'
+        self.update_agent_config_deps(
+            daemon_spec.host, daemon_spec.deps, datetime_now())
+        self.agent_timestamp[daemon_spec.host] = datetime_now()
+        self.agent_counter[daemon_spec.host] = 1
+        self.save_agent(daemon_spec.host)
 
 
 class EventStore():

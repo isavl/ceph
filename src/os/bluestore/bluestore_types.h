@@ -962,6 +962,8 @@ struct bluestore_onode_t {
 
   uint8_t flags = 0;
 
+  std::map<uint32_t, uint64_t> zone_offset_refs;  ///< (zone, offset) refs to this onode
+
   enum {
     FLAG_OMAP = 1,         ///< object may have omap data
     FLAG_PGMETA_OMAP = 2,  ///< omap data is in meta omap prefix
@@ -1029,11 +1031,14 @@ struct bluestore_onode_t {
   }
 
   void clear_omap_flag() {
-    clear_flag(FLAG_OMAP);
+    clear_flag(FLAG_OMAP |
+	       FLAG_PGMETA_OMAP |
+	       FLAG_PERPOOL_OMAP |
+	       FLAG_PERPG_OMAP);
   }
 
   DENC(bluestore_onode_t, v, p) {
-    DENC_START(1, 1, p);
+    DENC_START(2, 1, p);
     denc_varint(v.nid, p);
     denc_varint(v.size, p);
     denc(v.attrs, p);
@@ -1042,6 +1047,9 @@ struct bluestore_onode_t {
     denc_varint(v.expected_object_size, p);
     denc_varint(v.expected_write_size, p);
     denc_varint(v.alloc_hint_flags, p);
+    if (struct_v >= 2) {
+      denc(v.zone_offset_refs, p);
+    }
     DENC_FINISH(p);
   }
   void dump(ceph::Formatter *f) const;

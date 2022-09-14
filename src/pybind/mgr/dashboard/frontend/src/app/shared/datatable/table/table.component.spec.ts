@@ -513,15 +513,6 @@ describe('TableComponent', () => {
       equalStorageConfig();
     });
 
-    it('should toggle on off columns', () => {
-      for (const column of component.columns) {
-        component.toggleColumn(column);
-        expect(column.isHidden).toBeTruthy();
-        component.toggleColumn(column);
-        expect(column.isHidden).toBeFalsy();
-      }
-    });
-
     afterEach(() => {
       clearLocalStorage();
     });

@@ -6,6 +6,7 @@ const cephRelease = fs.readFileSync('../../../../ceph_release', 'utf8').split('\
 const branch = cephRelease[2] === 'dev' ? 'master' : cephRelease[1];
 module.exports = {
   appName: 'Ceph Dashboard',
+  batchId: process.env.APPLITOOLS_BATCH_ID, 
   apiKey: process.env.APPLITOOLS_API_KEY,
   browser: [
     { width: 1920, height: 1080, name: 'chrome' },

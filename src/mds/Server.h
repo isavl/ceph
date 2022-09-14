@@ -80,7 +80,6 @@ enum {
   l_mdss_req_unlink_latency,
   l_mdss_cap_revoke_eviction,
   l_mdss_cap_acquisition_throttle,
-  l_mdss_req_getvxattr_latency,
   l_mdss_last,
 };
 
@@ -96,7 +95,6 @@ public:
     TRIM = (1<<2),
     ENFORCE_LIVENESS = (1<<3),
   };
-
   explicit Server(MDSRank *m, MetricsHandler *metrics_handler);
   ~Server() {
     g_ceph_context->get_perfcounters_collection()->remove(logger);
@@ -123,12 +121,12 @@ public:
   void _session_logged(Session *session, uint64_t state_seq, bool open, version_t pv,
 		       const interval_set<inodeno_t>& inos_to_free, version_t piv,
 		       const interval_set<inodeno_t>& inos_to_purge, LogSegment *ls);
-  version_t prepare_force_open_sessions(map<client_t,entity_inst_t> &cm,
-					map<client_t,client_metadata_t>& cmm,
-					map<client_t,pair<Session*,uint64_t> >& smap);
-  void finish_force_open_sessions(const map<client_t,pair<Session*,uint64_t> >& smap,
+  version_t prepare_force_open_sessions(std::map<client_t,entity_inst_t> &cm,
+					std::map<client_t,client_metadata_t>& cmm,
+					std::map<client_t,std::pair<Session*,uint64_t> >& smap);
+  void finish_force_open_sessions(const std::map<client_t,std::pair<Session*,uint64_t> >& smap,
 				  bool dec_import=true);
-  void flush_client_sessions(set<client_t>& client_set, MDSGatherBuilder& gather);
+  void flush_client_sessions(std::set<client_t>& client_set, MDSGatherBuilder& gather);
   void finish_flush_session(Session *session, version_t seq);
   void terminate_sessions();
   void find_idle_sessions();
@@ -213,21 +211,16 @@ public:
   void handle_client_setlayout(MDRequestRef& mdr);
   void handle_client_setdirlayout(MDRequestRef& mdr);
 
-  int parse_quota_vxattr(string name, string value, quota_info_t *quota);
+  int parse_quota_vxattr(std::string name, std::string value, quota_info_t *quota);
   void create_quota_realm(CInode *in);
-  int parse_layout_vxattr_json(std::string name, std::string value,
-			       const OSDMap& osdmap, file_layout_t *layout);
-  int parse_layout_vxattr_string(std::string name, std::string value, const OSDMap& osdmap,
-				 file_layout_t *layout);
   int parse_layout_vxattr(std::string name, std::string value, const OSDMap& osdmap,
 			  file_layout_t *layout, bool validate=true);
   int check_layout_vxattr(MDRequestRef& mdr,
-                          string name,
-                          string value,
+                          std::string name,
+                          std::string value,
                           file_layout_t *layout);
   void handle_set_vxattr(MDRequestRef& mdr, CInode *cur);
   void handle_remove_vxattr(MDRequestRef& mdr, CInode *cur);
-  void handle_client_getvxattr(MDRequestRef& mdr);
   void handle_client_setxattr(MDRequestRef& mdr);
   void handle_client_removexattr(MDRequestRef& mdr);
 
@@ -260,7 +253,7 @@ public:
   void handle_peer_link_prep_ack(MDRequestRef& mdr, const cref_t<MMDSPeerRequest> &m);
   void do_link_rollback(bufferlist &rbl, mds_rank_t leader, MDRequestRef& mdr);
   void _link_rollback_finish(MutationRef& mut, MDRequestRef& mdr,
-			     map<client_t,ref_t<MClientSnap>>& split);
+			     std::map<client_t,ref_t<MClientSnap>>& split);
 
   // unlink
   void handle_client_unlink(MDRequestRef& mdr);
@@ -270,7 +263,7 @@ public:
   void _unlink_local_finish(MDRequestRef& mdr,
 			    CDentry *dn, CDentry *straydn,
 			    version_t);
-  bool _rmdir_prepare_witness(MDRequestRef& mdr, mds_rank_t who, vector<CDentry*>& trace, CDentry *straydn);
+  bool _rmdir_prepare_witness(MDRequestRef& mdr, mds_rank_t who, std::vector<CDentry*>& trace, CDentry *straydn);
   void handle_peer_rmdir_prep(MDRequestRef& mdr);
   void _logged_peer_rmdir(MDRequestRef& mdr, CDentry *srcdn, CDentry *straydn);
   void _commit_peer_rmdir(MDRequestRef& mdr, int r, CDentry *straydn);
@@ -292,8 +285,8 @@ public:
   void _renamesnap_finish(MDRequestRef& mdr, CInode *diri, snapid_t snapid);
 
   // helpers
-  bool _rename_prepare_witness(MDRequestRef& mdr, mds_rank_t who, set<mds_rank_t> &witnesse,
-			       vector<CDentry*>& srctrace, vector<CDentry*>& dsttrace, CDentry *straydn);
+  bool _rename_prepare_witness(MDRequestRef& mdr, mds_rank_t who, std::set<mds_rank_t> &witnesse,
+			       std::vector<CDentry*>& srctrace, std::vector<CDentry*>& dsttrace, CDentry *straydn);
   version_t _rename_prepare_import(MDRequestRef& mdr, CDentry *srcdn, bufferlist *client_map_bl);
   bool _need_force_journal(CInode *diri, bool empty);
   void _rename_prepare(MDRequestRef& mdr,
@@ -314,7 +307,7 @@ public:
   void _commit_peer_rename(MDRequestRef& mdr, int r, CDentry *srcdn, CDentry *destdn, CDentry *straydn);
   void do_rename_rollback(bufferlist &rbl, mds_rank_t leader, MDRequestRef& mdr, bool finish_mdr=false);
   void _rename_rollback_finish(MutationRef& mut, MDRequestRef& mdr, CDentry *srcdn, version_t srcdnpv,
-			       CDentry *destdn, CDentry *staydn, map<client_t,ref_t<MClientSnap>> splits[2],
+			       CDentry *destdn, CDentry *staydn, std::map<client_t,ref_t<MClientSnap>> splits[2],
 			       bool finish_mdr);
 
   void evict_cap_revoke_non_responders();
@@ -322,7 +315,7 @@ public:
 
   bool terminating_sessions = false;
 
-  set<client_t> client_reclaim_gather;
+  std::set<client_t> client_reclaim_gather;
 
 private:
   friend class MDSContinuation;
@@ -422,37 +415,10 @@ private:
     return xattr_name.rfind("ceph.dir.layout", 0) == 0 ||
            xattr_name.rfind("ceph.file.layout", 0) == 0 ||
            xattr_name.rfind("ceph.quota", 0) == 0 ||
-           xattr_name == "ceph.dir.subvolume"sv ||
-           xattr_name == "ceph.dir.pin"sv ||
-           xattr_name == "ceph.dir.pin.random"sv ||
-           xattr_name == "ceph.dir.pin.distributed"sv;
-  }
-
-  static bool is_ceph_dir_vxattr(std::string_view xattr_name) {
-    return (xattr_name == "ceph.dir.layout" ||
-	    xattr_name == "ceph.dir.layout.json" ||
-	    xattr_name == "ceph.dir.layout.object_size" ||
-	    xattr_name == "ceph.dir.layout.stripe_unit" ||
-	    xattr_name == "ceph.dir.layout.stripe_count" ||
-	    xattr_name == "ceph.dir.layout.pool" ||
-	    xattr_name == "ceph.dir.layout.pool_name" ||
-	    xattr_name == "ceph.dir.layout.pool_id" ||
-	    xattr_name == "ceph.dir.layout.pool_namespace" ||
-	    xattr_name == "ceph.dir.pin" ||
-	    xattr_name == "ceph.dir.pin.random" ||
-	    xattr_name == "ceph.dir.pin.distributed");
-  }
-
-  static bool is_ceph_file_vxattr(std::string_view xattr_name) {
-    return (xattr_name == "ceph.file.layout" ||
-	    xattr_name == "ceph.file.layout.json" ||
-	    xattr_name == "ceph.file.layout.object_size" ||
-	    xattr_name == "ceph.file.layout.stripe_unit" ||
-	    xattr_name == "ceph.file.layout.stripe_count" ||
-	    xattr_name == "ceph.file.layout.pool" ||
-	    xattr_name == "ceph.file.layout.pool_name" ||
-	    xattr_name == "ceph.file.layout.pool_id" ||
-	    xattr_name == "ceph.file.layout.pool_namespace");
+           xattr_name == "ceph.dir.subvolume" ||
+           xattr_name == "ceph.dir.pin" ||
+           xattr_name == "ceph.dir.pin.random" ||
+           xattr_name == "ceph.dir.pin.distributed";
   }
 
   static bool is_allowed_ceph_xattr(std::string_view xattr_name) {
@@ -483,8 +449,8 @@ private:
                             // before proceeding to reconnect_gather_finish
   time reconnect_start = clock::zero();
   time reconnect_last_seen = clock::zero();
-  set<client_t> client_reconnect_gather;  // clients i need a reconnect msg from.
-  set<client_t> client_reconnect_denied;  // clients whose reconnect msg have been denied .
+  std::set<client_t> client_reconnect_gather;  // clients i need a reconnect msg from.
+  std::set<client_t> client_reconnect_denied;  // clients whose reconnect msg have been denied .
 
   feature_bitset_t supported_features;
   feature_bitset_t required_client_features;
@@ -495,6 +461,7 @@ private:
   uint64_t max_snaps_per_dir = 100;
   unsigned delegate_inos_pct = 0;
   uint64_t dir_max_entries = 0;
+  int64_t bal_fragment_size_max = 0;
 
   DecayCounter recall_throttle;
   time last_recall_state;
