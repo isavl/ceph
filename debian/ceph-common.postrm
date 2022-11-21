@@ -2,7 +2,7 @@
 
 set -e
 
-if [ "${1}" = "purge" ]; the
+if [ "${1}" = "purge" ]; then
     [ -f "/etc/default/ceph" ] && . /etc/default/ceph
 
     [ -z "${SERVER_USER}" ] && SERVER_USER="ceph"

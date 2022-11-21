@@ -1,0 +1,3 @@
+#!/usr/bin/dh-exec
+
+usr/bin/crimson-osd => usr/bin/ceph-crimson-osd

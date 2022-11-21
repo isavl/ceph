@@ -6,30 +6,16 @@ Build-Depends:
     debhelper (>= 13.1~),
     debhelper-compat (= 13),
     dpkg-dev (>= 1.16.1~),
-    cmake,
-    cython3,
     dh-exec,
     dh-python,
+    cmake,
+    cython3,
     gperf,
     libaio-dev,
     libbabeltrace-ctf-dev,
     libbabeltrace-dev,
     libblkid-dev (>= 2.17),
-    libboost-atomic-dev (>= 1.74.0),
-    libboost-chrono-dev (>= 1.74.0),
-    libboost-context-dev (>= 1.74.0) [!ia64 !m68k !ppc64 !sh4 !sparc64 !x32 !alpha],
-    libboost-coroutine-dev (>= 1.74.0) [!ia64 !m68k !ppc64 !sh4 !sparc64 !x32 !alpha],
-    libboost-date-time-dev (>= 1.74.0),
-    libboost-filesystem-dev (>= 1.74.0),
-    libboost-iostreams-dev (>= 1.74.0),
-    libboost-program-options-dev (>= 1.74.0),
-    libboost-python-dev (>= 1.74.0),
-    libboost-random-dev (>= 1.74.0),
-    libboost-regex-dev (>= 1.74.0),
-    libboost-system-dev (>= 1.74.0),
-    libboost-test-dev (>= 1.74.0),
-    libboost-thread-dev (>= 1.74.0),
-    libboost-timer-dev (>= 1.74.0),
+    libboost-all-dev (>= 1.74.0),
     libbz2-dev,
     libc-ares-dev,
     libcap-ng-dev,
@@ -38,6 +24,7 @@ Build-Depends:
     libcunit1-dev,
     libcurl4-gnutls-dev,
     libedit-dev,
+    libevent-dev,
     libexpat1-dev,
     libfmt-dev,
     libfuse-dev,
@@ -50,9 +37,8 @@ Build-Depends:
     libjerasure-dev,
     libkeyutils-dev,
     libldap2-dev,
-    libleveldb-dev,
     liblua5.3-dev,
-    liblz4-dev (>= 0.0~r131),
+    liblz4-dev,
     libncurses-dev,
     libnl-3-dev,
     libnl-genl-3-dev,
@@ -65,25 +51,36 @@ Build-Depends:
     libprotobuf-dev,
     librabbitmq-dev,
     librdmacm-dev,
+    libre2-dev,
     libsctp-dev,
     libsnappy-dev,
     libsqlite3-dev,
     libssl-dev,
+    libsystemd-dev,
+    libthrift-dev,
     libtool,
     libudev-dev,
     liburing-dev,
+    libutf8proc-dev,
     libxml2-dev,
+    libxsimd-dev,
     libyaml-cpp-dev,
+    libzstd-dev,
     lsb-release,
     nasm [amd64],
+    ninja-build,
+    nlohmann-json3-dev,
     pkg-config,
     protobuf-compiler,
     python3-cherrypy3,
     python3-dev,
     python3-pecan,
+    python3-prettytable,
     python3-setuptools,
     python3-sphinx,
+    python3-yaml,
     ragel,
+    systemd,
     systemtap-sdt-dev,
     tox,
     uuid-runtime,
@@ -91,7 +88,7 @@ Build-Depends:
     virtualenv,
     xfslibs-dev,
     zlib1g-dev,
-Standards-Version: 4.5.1
+Standards-Version: 4.6.1
 Rules-Requires-Root: no
 
 Package: ceph
@@ -145,6 +142,7 @@ Architecture: linux-any
 Depends: ${misc:Depends},
          ${shlibs:Depends},
          ${python3:Depends},
+         adduser,
          librbd1 (= ${binary:Version}),
          python3-ceph-argparse (= ${binary:Version}),
          python3-ceph-common (<< ${source:Version}.1~),
@@ -324,17 +322,17 @@ Replaces:
 Description: Ceph manager modules which are always enabled
  This package contains a set of core ceph-mgr modules which are always enabled.
 
-Package: ceph-mgr-rook
-Architecture: all
-Depends:
-    ${misc:Depends},
-    ${shlibs:Depends},
-    ${python3:Depends},
-    ceph-mgr (>= ${binary:Version}),
-    python3-six,
-Description: Rook plugin for ceph-mgr
- This package contains the rook plugin for ceph-mgr's orchestration
- functionality, to allow ceph-mgr to install and configure ceph using Rook.
+# Package: ceph-mgr-rook
+# Architecture: all
+# Depends:
+#     ${misc:Depends},
+#     ${shlibs:Depends},
+#     ${python3:Depends},
+#     ceph-mgr (>= ${binary:Version}),
+#     python3-six,
+# Description: Rook plugin for ceph-mgr
+#  This package contains the rook plugin for ceph-mgr's orchestration
+#  functionality, to allow ceph-mgr to install and configure ceph using Rook.
 
 Package: ceph-mon
 Architecture: linux-any
@@ -382,6 +380,28 @@ Depends:
     ceph-osd (= ${binary:Version}),
 Description: Debugging symbols for ceph-osd
  This package contains the debugging symbols for ceph-osd.
+
+# Package: ceph-crimson-osd
+# Architecture: linux-any
+# Depends:
+#     ${misc:Depends},
+#     ceph-osd (= ${binary:Version}),
+# Description: Crimson OSD server for the ceph storage system
+#  This package contains the Crimson Object Storage Daemon for the
+#  ceph storage system. It is responsible for storing objects on a
+#  local file system and providing access to them over the network.
+#  .
+#  Crimson is a re-implementation of the ceph-osd daemon using a more
+#  platform aware and scalable software architecture (seastar).
+
+# Package: ceph-crimson-osd-dbg
+# Architecture: linux-any
+# Section: debug
+# Depends:
+#     ${misc:Depends},
+#     ceph-crimson-osd (= ${binary:Version}),
+# Description: Debugging symbols for ceph-crimson-osd
+#  This package contains the debugging symbols for ceph-crimson-osd.
 
 Package: ceph-prometheus-alerts
 Architecture: all
@@ -690,37 +710,37 @@ Depends:
 Description: Debugging symbols for librbd1
  This package contains debugging symbols for librgw2.
 
-Package: libsqlite3-mod-ceph
-Architecture: any
-Section: libs
-Depends:
-    ${misc:Depends},
-    ${shlibs:Depends},
-Description: SQLite3 VFS for Ceph
- A SQLite3 VFS for storing and manipulating databases stored on Ceph's RADOS
- distributed object store.
- .
- This packages contains the loadable extension module for SQLite3.
+# Package: libsqlite3-mod-ceph
+# Architecture: any
+# Section: libs
+# Depends:
+#     ${misc:Depends},
+#     ${shlibs:Depends},
+# Description: SQLite3 VFS for Ceph
+#  A SQLite3 VFS for storing and manipulating databases stored on Ceph's RADOS
+#  distributed object store.
+#  .
+#  This packages contains the loadable extension module for SQLite3.
 
-Package: libsqlite3-mod-ceph-dbg
-Architecture: any
-Section: debug
-Depends:
-    ${misc:Depends},
-    libsqlite3-mod-ceph (= ${binary:Version}),
-Description: Debugging symbols for libsqlite3-mod-ceph
- This package contains debugging symbols for libsqlite3-mod-ceph.
+# Package: libsqlite3-mod-ceph-dbg
+# Architecture: any
+# Section: debug
+# Depends:
+#     ${misc:Depends},
+#     libsqlite3-mod-ceph (= ${binary:Version}),
+# Description: Debugging symbols for libsqlite3-mod-ceph
+#  This package contains debugging symbols for libsqlite3-mod-ceph.
 
-Package: libsqlite3-mod-ceph-dev
-Architecture: any
-Section: libdevel
-Depends:
-    ${misc:Depends},
-    libsqlite3-dev,
-    libsqlite3-mod-ceph (= ${binary:Version}),
-Description: SQLite3 VFS for Ceph (development files)
- This package contains development files needed for building applications that
- link against libsqlite3-mod-ceph.
+# Package: libsqlite3-mod-ceph-dev
+# Architecture: any
+# Section: libdevel
+# Depends:
+#     ${misc:Depends},
+#     libsqlite3-dev,
+#     libsqlite3-mod-ceph (= ${binary:Version}),
+# Description: SQLite3 VFS for Ceph (development files)
+#  This package contains development files needed for building applications that
+#  link against libsqlite3-mod-ceph.
 
 Package: python3-ceph
 Architecture: all

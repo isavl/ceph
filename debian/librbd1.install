@@ -1,4 +1,4 @@
 usr/lib/*/librbd.so.*
 
 usr/lib/*/ceph/librbd/libceph_librbd_parent_cache.so.*
-usr/lib/*/ceph/librbd/libceph_librbd_pwl_cache.so.*
+# usr/lib/*/ceph/librbd/libceph_librbd_pwl_cache.so.*

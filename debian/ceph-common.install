@@ -1,10 +1,10 @@
-#!/usr/bin/dh-exec --with=install
+debian/extras/ceph/ceph.conf etc/ceph
 
 etc/ceph/rbdmap
 etc/default/ceph
 
-lib/systemd/system/ceph.target
-lib/systemd/system/rbdmap.service
+debian/extras/systemd/ceph.target lib/systemd/system
+debian/extras/systemd/rbdmap.service lib/systemd/system
 
 lib/udev/rules.d/50-rbd.rules
 
@@ -12,26 +12,24 @@ usr/bin/ceph
 usr/bin/ceph-authtool
 usr/bin/ceph-conf
 usr/bin/ceph-dencoder
+usr/bin/ceph-post-file
 usr/bin/ceph-rbdnamer
 usr/bin/ceph-syn
 usr/bin/cephfs-data-scan
 usr/bin/cephfs-journal-tool
 usr/bin/cephfs-table-tool
+usr/bin/crushdiff
 usr/bin/rados
 usr/bin/radosgw-admin
 usr/bin/rbd
-usr/bin/rbdmap
 usr/bin/rbd-replay*
-usr/bin/ceph-post-file
+usr/bin/rbdmap
 
 usr/sbin/mount.ceph sbin
 
 usr/lib/*/ceph/compressor/*
 usr/lib/*/ceph/crypto/*
-
-usr/share/ceph/known_hosts_drop.ceph.com
-usr/share/ceph/id_rsa_drop.ceph.com
-usr/share/ceph/id_rsa_drop.ceph.com.pub
+usr/lib/*/ceph/denc/*
 
 usr/share/man/man8/ceph-authtool.8
 usr/share/man/man8/ceph-conf.8
@@ -41,6 +39,7 @@ usr/share/man/man8/ceph-post-file.8
 usr/share/man/man8/ceph-rbdnamer.8
 usr/share/man/man8/ceph-syn.8
 usr/share/man/man8/ceph.8
+usr/share/man/man8/crushdiff.8
 usr/share/man/man8/mount.ceph.8
 usr/share/man/man8/rados.8
 usr/share/man/man8/radosgw-admin.8

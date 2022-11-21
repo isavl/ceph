@@ -16,7 +16,11 @@ PartOf=ceph-fuse.target
 
 [Service]
 
-ExecStart=/usr/bin/ceph-fuse -f --cluster ceph %I
+ExecStart=/usr/bin/ceph-fuse --cluster ceph %i
+
+Type=forking
+
+PIDFile=/run/ceph/ceph-fuse-%i.pid
 
 LockPersonality=true
 

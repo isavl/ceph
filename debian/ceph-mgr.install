@@ -1,6 +1,8 @@
-lib/systemd/system/ceph-mgr*
+debian/extras/systemd/ceph-mgr.target lib/systemd/system
+debian/extras/systemd/ceph-mgr@.service lib/systemd/system
 
 usr/bin/ceph-mgr
 
 usr/share/ceph/mgr/mgr_module.*
 usr/share/ceph/mgr/mgr_util.*
+usr/share/ceph/mgr/object_format.*

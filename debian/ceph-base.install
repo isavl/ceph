@@ -1,6 +1,6 @@
 etc/sudoers.d/ceph-smartctl
 
-lib/systemd/system/ceph-crash.service
+debian/extras/systemd/ceph-crash.service lib/systemd/system
 
 usr/bin/ceph-crash
 usr/bin/ceph-kvstore-tool
@@ -14,11 +14,8 @@ usr/lib/*/rados-classes/*
 
 usr/lib/ceph/ceph_common.sh
 
-usr/sbin/ceph-create-keys
-
 usr/share/doc/ceph/sample.ceph.conf
 
-usr/share/man/man8/ceph-create-keys.8
 usr/share/man/man8/ceph-kvstore-tool.8
 usr/share/man/man8/ceph-run.8
 usr/share/man/man8/crushtool.8

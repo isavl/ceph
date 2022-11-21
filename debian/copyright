@@ -1,8 +1,68 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Source: http://ceph.com/
+
+Files: *
+Copyright: 2004-2014 Sage Weil <sage@newdream.net>
+           2004-2014 Inktank <info@inktank.com>
+                     Inktank, Inc
+                     Inktank Storage, Inc.
+           2012-2021 Red Hat <contact@redhat.com>
+           2013-2014 Cloudwatt <libre.licensing@cloudwatt.com>
+           2013      CohortFS, LLC
+           2004-2011 Dreamhost
+           2013      eNovance SAS <licensing@enovance.com>
+           2014      Adam Crume <adamcrume@gmail.com>
+           2012      Florian Haas, hastexo
+           2010      Greg Farnum <gregf@hq.newdream.net>
+           2014      John Spray <john.spray@inktank.com
+           2004-2012 New Dream Network
+           2014      Sebastien Ponce <sebastien.ponce@cern.ch>
+           2011      Stanislav Sedov <stas@FreeBSD.org>
+           2013-2014 UnitedStack <haomai@unitedstack.com>
+           2011      Wido den Hollander <wido@widodh.nl>
+           2004-2021, The Ceph Project Developers
+           2008-2011, New Dream Network
+           2019-2021, SUSE LINUX GmbH
+           2004-2006, Intel Corporation
+           2011-2014, Stanford University
+           2017 OVH
+           2016       Allen Samuels <allen.samuels@sandisk.com>
+           2014       UnitedStack <haomai@unitedstack.com>
+           2015       XSky <haomai@xsky.com>
+           2017       International Business Machines Corp.
+           2015       CohortFS, LLC.
+           2015-2016  Mirantis, Inc.
+           2011-2015 Edward Diener
+           2014 FUJITSU LIMITED
+           2012 Eleanor Cawthon
+           2011-2018, Facebook, Inc.
+           2011 The LevelDB Authors.
+           2016 Mehdi Abaakouk <sileht@redhat.com>
+           2011 Josh Durgin
+           2011 Hannu Valtonen <hannu.valtonen@ormod.com>
+           2015 Hector Martin <marcan@marcan.st>
+License: LGPL-2.1
 
 Files: debian/*
 Copyright: 2022, Igor Savlook <isav@alzari.pw>
 License: MIT
+
+License: LGPL-2.1
+ This library is free software; you can redistribute it and/or
+ modify it under the terms of the GNU Lesser General Public
+ License version 2.1 as published by the Free Software Foundation.
+ .
+ This library is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ Lesser General Public License for more details.
+ .
+ You should have received a copy of the GNU Lesser General Public
+ License along with this library; if not, write to the Free Software
+ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ .
+ On Debian systems, the complete text of the GNU Lesser General
+ Public License can be found in `/usr/share/common-licenses/LGPL-2.1'.
 
 License: MIT
  Permission is hereby granted, free of charge, to any person obtaining a copy

@@ -1,5 +1,5 @@
-lib/systemd/system/cephfs-mirror.target
-lib/systemd/system/cephfs-mirror@.service
+debian/extras/systemd/cephfs-mirror.target lib/systemd/system
+debian/extras/systemd/cephfs-mirror@.service lib/systemd/system
 
 usr/bin/cephfs-mirror
 

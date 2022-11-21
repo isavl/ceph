@@ -1,7 +1,8 @@
 etc/sysctl.d/30-ceph-osd.conf
 
-lib/systemd/system/ceph-osd*
-lib/systemd/system/ceph-volume@.service
+debian/extras/systemd/ceph-osd.target lib/systemd/system
+debian/extras/systemd/ceph-osd@.service lib/systemd/system
+debian/extras/systemd/ceph-volume@.service lib/systemd/system
 
 debian/extras/udev/95-ceph-osd-lvm.rules lib/udev/rules.d
 

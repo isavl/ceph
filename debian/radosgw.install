@@ -1,4 +1,5 @@
-lib/systemd/system/ceph-radosgw*
+debian/extras/systemd/ceph-radosgw.target lib/systemd/system
+debian/extras/systemd/ceph-radosgw@.service lib/systemd/system
 
 usr/bin/ceph-diff-sorted
 usr/bin/radosgw

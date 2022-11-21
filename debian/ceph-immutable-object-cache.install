@@ -1,4 +1,5 @@
-lib/systemd/system/ceph-immutable-object-cache*
+debian/extras/systemd/ceph-immutable-object-cache.target lib/systemd/system
+debian/extras/systemd/ceph-immutable-object-cache@.service lib/systemd/system
 
 usr/bin/ceph-immutable-object-cache
 

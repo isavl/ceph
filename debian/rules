@@ -1,5 +1,9 @@
 #!/usr/bin/make -f
 
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=-lto
+
+DPKG_EXPORT_BUILDFLAGS = 1
+
 include /usr/share/dpkg/default.mk
 
 DEB_HOST_ARCH_BITS ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_BITS)
@@ -9,78 +13,88 @@ export DESTDIR = $(CURDIR)/debian/tmp
 export DEB_BUILD_ARCH ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH)
 export DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
 
-# Try to save even more memory on some architectures see #849657 for hints.
-# Reduce size of debug symbols to fix FTBFS due to the 2GB/3GB address space
-# limits on 32bit.
-ifeq ($(DEB_HOST_ARCH_BITS),32)
-export DEB_CFLAGS_MAINT_APPEND = -g1 -Os
-export DEB_CXXFLAGS_MAINT_APPEND = -g1 -Os
-endif
-
-# Minimise needless linking and link to libatomic. The last is needed because
-# long long atomic operations are not directly supported by all processor
-# architectures. The -Wl,--no-keep-memory should save memory but then will
-# go slower. No choice, as mipsel FTBFS.
-ifeq ($(DEB_HOST_ARCH_BITS),32)
-export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed -latomic -Wl,--no-keep-memory
-endif
-
-# Enable hardening.
-export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=-lto
+# As of 2022-09-27 fmt > 9 has deprecated an API that is used extensively
+# throughout the code base.
+#
+# See:
+#   Upstream: https://tracker.ceph.com/issues/56610
+#   Debian: https://salsa.debian.org/ceph-team/ceph/-/merge_requests/9
+CXXFLAGS += -DFMT_DEPRECATED_OSTREAM
 
 CONFFLAGS := -DCMAKE_BUILD_TYPE=RelWithDebInfo
 CONFFLAGS += -DCMAKE_C_FLAGS_RELWITHDEBINFO="$(CFLAGS)"
 CONFFLAGS += -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="$(CXXFLAGS)"
 CONFFLAGS += -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib
 CONFFLAGS += -DCMAKE_INSTALL_SYSCONFDIR=/etc
-CONFFLAGS += -DCMAKE_INSTALL_SYSTEMD_SERVICEDIR=/lib/systemd/system
 CONFFLAGS += -DCEPH_SYSTEMD_ENV_DIR=/etc/default
-CONFFLAGS += -DMGR_PYTHON_VERSION=3
+CONFFLAGS += -DSYSTEMD_SYSTEM_UNIT_DIR=/lib/systemd/system
+CONFFLAGS += -DDASHBOARD_FRONTEND_LANGS="en-US"
+CONFFLAGS += -DENABLE_GIT_VERSION=ON
+CONFFLAGS += -DWITH_BLUESTORE=ON
+CONFFLAGS += -DWITH_BLUESTORE_PMEM=OFF
+CONFFLAGS += -DWITH_BROTLI=OFF
+CONFFLAGS += -DWITH_CEPHFS=ON
 CONFFLAGS += -DWITH_CEPHFS_JAVA=OFF
 CONFFLAGS += -DWITH_CEPHFS_SHELL=ON
 CONFFLAGS += -DWITH_DEBUG=ON
-CONFFLAGS += -DWITH_EMBEDDED=OFF
+CONFFLAGS += -DWITH_DOKAN=OFF
+CONFFLAGS += -DWITH_DPDK=OFF
+CONFFLAGS += -DWITH_FIO=OFF
+CONFFLAGS += -DWITH_FUSE=ON
 CONFFLAGS += -DWITH_GRAFANA=OFF
-CONFFLAGS += -DWITH_LTTNG=OFF
+CONFFLAGS += -DWITH_GSSAPI=OFF
+CONFFLAGS += -DWITH_KRBD=ON
+CONFFLAGS += -DWITH_KVS=OFF
+CONFFLAGS += -DWITH_LIBCEPHFS=ON
+CONFFLAGS += -DWITH_LIBCEPHSQLITE=OFF
+CONFFLAGS += -DWITH_LIBRADOSSTRIPER=ON
+CONFFLAGS += -DWITH_LIBURING=ON
+CONFFLAGS += -DWITH_LZ4=ON
 CONFFLAGS += -DWITH_MANPAGE=ON
+CONFFLAGS += -DWITH_MGR=ON
 CONFFLAGS += -DWITH_MGR_DASHBOARD_FRONTEND=OFF
-CONFFLAGS += -DWITH_NSS=ON
+CONFFLAGS += -DWITH_MGR_ROOK_CLIENT=OFF
 CONFFLAGS += -DWITH_OCF=ON
-CONFFLAGS += -DWITH_PYTHON2=OFF
+CONFFLAGS += -DWITH_OPENLDAP=ON
 CONFFLAGS += -DWITH_PYTHON3=3
+CONFFLAGS += -DWITH_QAT=OFF
+CONFFLAGS += -DWITH_QATZIP=OFF
+CONFFLAGS += -DWITH_RADOSGW=ON
+CONFFLAGS += -DWITH_RADOSGW_AMQP_ENDPOINT=OFF
+CONFFLAGS += -DWITH_RADOSGW_BEAST_OPENSSL=ON
+CONFFLAGS += -DWITH_RADOSGW_DBSTORE=OFF
 CONFFLAGS += -DWITH_RADOSGW_KAFKA_ENDPOINT=OFF
+CONFFLAGS += -DWITH_RADOSGW_LUA_PACKAGES=OFF
+CONFFLAGS += -DWITH_RADOSGW_SELECT_PARQUET=OFF
+CONFFLAGS += -DWITH_RBD=ON
+CONFFLAGS += -DWITH_RBD_RWL=OFF
+CONFFLAGS += -DWITH_RBD_SSD_CACHE=OFF
 CONFFLAGS += -DWITH_REENTRANT_STRSIGNAL=ON
+CONFFLAGS += -DWITH_SELINUX=OFF
+CONFFLAGS += -DWITH_SPDK=OFF
 CONFFLAGS += -DWITH_SYSTEMD=ON
-CONFFLAGS += -DWITH_SYSTEM_BOOST=ON
+CONFFLAGS += -DWITH_SYSTEM_ARROW=OFF
+CONFFLAGS += -DWITH_SYSTEM_BOOST=OFF
+CONFFLAGS += -DWITH_SYSTEM_GTEST=OFF
 CONFFLAGS += -DWITH_SYSTEM_LIBURING=ON
+CONFFLAGS += -DWITH_SYSTEM_NPM=OFF
+CONFFLAGS += -DWITH_SYSTEM_PMDK=OFF
+CONFFLAGS += -DWITH_SYSTEM_ROCKSDB=OFF
+CONFFLAGS += -DWITH_SYSTEM_UTF8PROC=ON
+CONFFLAGS += -DWITH_SYSTEM_ZSTD=ON
 CONFFLAGS += -DWITH_TESTS=OFF
+CONFFLAGS += -DWITH_THREAD_SAFE_RES_QUERY=OFF
+CONFFLAGS += -DWITH_XFS=ON
+CONFFLAGS += -DWITH_ZBD=OFF
+CONFFLAGS += -DWITH_ZFS=OFF
 
-# Support ccache for faster build; cmake uses /usr/bin/c*.
-ifeq ($(findstring yes,$(shell test -L /usr/lib/ccache/c++ && test -L /usr/lib/ccache/cc && echo -n yes)),yes)
-CONFFLAGS += -DWITH_CCACHE=ON
-endif
-
-# We don't have NEON on armel.
-ifeq ($(DEB_HOST_ARCH),armel)
-CONFFLAGS += -DHAVE_ARM_NEON=0
-endif
-
-# Disable ceph-dencoder on 32bit except i386 to avoid g++ oom.
-ifneq ($(filter $(DEB_HOST_ARCH),armel armhf hppa m68k mips mipsel powerpc sh4 x32),)
-CONFFLAGS += -DDISABLE_DENCODER=1
-endif
-
-ifneq ($(findstring $(DEB_HOST_ARCH),amd64 arm64 ppc64el),)
-CONFFLAGS += -DWITH_BLUESTORE_PMEM=ON
-CONFFLAGS += -DWITH_RBD_RWL=ON
-CONFFLAGS += -DWITH_RBD_SSD_CACHE=ON
-CONFFLAGS += -DWITH_SPDK=OFF
-# CONFFLAGS += -DWITH_SPDK=ON
-CONFFLAGS += -DWITH_SYSTEM_PMDK=ON
-else
-# Disable SPDK as it generates a build which is no compatible with older CPU's.
-CONFFLAGS += -DWITH_SPDK=OFF
-endif
+# Tracing support.
+CONFFLAGS += -DWITH_BABELTRACE=OFF
+CONFFLAGS += -DWITH_BLKIN=OFF
+CONFFLAGS += -DWITH_EVENTTRACE=OFF
+CONFFLAGS += -DWITH_JAEGER=OFF
+CONFFLAGS += -DWITH_LTTNG=OFF
+CONFFLAGS += -DWITH_OSD_INSTRUMENT_FUNCTIONS=OFF
 
 # Enable crimson build on supported architectures.
 ifneq ($(findstring $(DEB_HOST_ARCH),amd64 arm64 ppc64el s390x),)
@@ -89,40 +103,26 @@ CONFFLAGS += -DWITH_SEASTAR=OFF
 # CONFFLAGS += -DSeastar_CXX_FLAGS=-DSEASTAR_DEFAULT_ALLOCATOR
 endif
 
+# Required when build without system boost (WITH_SYSTEM_BOOST=OFF).
 ifneq ($(filter parallel=%,$(DEB_BUILD_OPTIONS)),)
 NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
 CONFFLAGS += -DBOOST_J=$(NUMJOBS)
 endif
 
-ifneq ($(filter $(DEB_HOST_ARCH),ia64 m68k ppc64 sh4 sparc64 x32 alpha),)
-# Beast depends on libboost_{context,coroutine} which is not supported on s390x.
-CONFFLAGS += -DWITH_BOOST_CONTEXT=OFF
-else
-CONFFLAGS += -DWITH_BOOST_CONTEXT=ON
-endif
-
 MAX_PARALLEL ?= $(shell $(CURDIR)/debian/scripts/calc-max-parallel.sh)
 
 %:
-	dh $@ --buildsystem=cmake --with=python3 $(MAX_PARALLEL)
+	dh $@ --buildsystem=cmake+ninja --with=python3 $(MAX_PARALLEL)
 
 override_dh_auto_configure:
-	env | sort
-	dh_auto_configure --buildsystem=cmake -- $(CONFFLAGS)
-
-# After trying to patch the various places where HAVE_ARM_NEON is used
-# the easiest way to get rid of it on armel seems to be to patch the cmake
-# cache file.
-ifeq ($(DEB_HOST_ARCH),armel)
-	sed 's,^HAVE_ARM_NEON.*,HAVE_ARM_NEON:INTERNAL=0,' -i obj-arm-linux-gnueabi/CMakeCache.txt
-endif
+	dh_auto_configure --buildsystem=cmake+ninja -- $(CONFFLAGS)
 
 override_dh_auto_install:
-	dh_auto_install --buildsystem=cmake --destdir=$(DESTDIR)
+	dh_auto_install --buildsystem=cmake+ninja --destdir=$(DESTDIR)
 
 	install -D -m 644 debian/extras/ceph/rbdmap $(DESTDIR)/etc/ceph/rbdmap
 
-	install -D -m 440 sudoers.d/ceph-smartctl $(DESTDIR)/etc/sudoers.d/ceph-smartctl
+	install -D -m 440 debian/extras/sudoers.d/ceph-smartctl $(DESTDIR)/etc/sudoers.d/ceph-smartctl
 
 	install -D -m 644 etc/sysctl/90-ceph-osd.conf $(DESTDIR)/etc/sysctl.d/30-ceph-osd.conf
 
@@ -142,6 +142,19 @@ override_dh_auto_install:
 
 	rm -f $(DESTDIR)/etc/init.d/ceph
 
+# Remove drop.ceph.com ssh stuff.
+	rm -f $(DESTDIR)/usr/share/ceph/known_hosts_drop.ceph.com
+	rm -f $(DESTDIR)/usr/share/ceph/id_rsa_drop.ceph.com
+	rm -f $(DESTDIR)/usr/share/ceph/id_rsa_drop.ceph.com.pub
+
+# Use systemd units from debian/extras/systemd.
+	rm $(DESTDIR)/lib/systemd/system/*
+
+# This tool is obsolete; mons now create these keys on their own.
+# It will be removed in the next release.
+	rm -f $(DESTDIR)/usr/sbin/ceph-create-keys
+	rm -f $(DESTDIR)/usr/share/man/man8/ceph-create-keys.8
+
 # NOTE: Ensure that any versioned erasure coding test code is dropped from
 # the package install - package ships unversioned modules.
 	rm -f $(DESTDIR)/usr/lib/*/ceph/erasure-code/libec_*.so.*
@@ -150,7 +163,7 @@ override_dh_auto_install:
 	rm -f -r $(DESTDIR)/usr/share/ceph/mgr/diskprediction_local
 
 # Avoid running out of disk space.
-	rm -rf $(CURDIR)/obj-*-linux-gnu
+	rm -f -r $(CURDIR)/obj-*-linux-gnu
 
 # Do not run tests.
 override_dh_auto_test:
@@ -160,41 +173,40 @@ override_dh_installchangelogs:
 	dh_installchangelogs --exclude doc/changelog
 
 override_dh_installsystemd:
-	cp debian/extras/systemd/* $(DESTDIR)/lib/systemd/system/
-
 # Ensure systemd units are NOT automatically enabled and started.
 # Enable systemd targets only.
 # Start systemd targets only.
 	dh_installsystemd --no-stop-on-upgrade --no-restart-after-upgrade -Xceph-mon.service -Xceph-osd.service -X ceph-mds.service
 
 override_dh_strip:
-	dh_strip -pceph-base --dbg-package=ceph-base-dbg
-	dh_strip -pceph-common --dbg-package=ceph-common-dbg
-	dh_strip -pceph-fuse
-	dh_strip -pceph-immutable-object-cache --dbg-package=ceph-immutable-object-cache-dbg
-	dh_strip -pceph-mds --dbg-package=ceph-mds-dbg
-	dh_strip -pceph-mgr --dbg-package=ceph-mgr-dbg
-	dh_strip -pceph-mon --dbg-package=ceph-mon-dbg
-	dh_strip -pceph-osd --dbg-package=ceph-osd-dbg
-	dh_strip -pceph-test
-	dh_strip -pcephfs-mirror --dbg-package=cephfs-mirror-dbg
-	dh_strip -plibcephfs2 --dbg-package=libcephfs2-dbg
-	dh_strip -plibrados-dev
-	dh_strip -plibrados2 --dbg-package=librados2-dbg
-	dh_strip -plibradosstriper1 --dbg-package=libradosstriper1-dbg
-	dh_strip -plibrbd1 --dbg-package=librbd1-dbg
-	dh_strip -plibrgw2 --dbg-package=librgw2-dbg
-	dh_strip -plibsqlite3-mod-ceph --dbg-package=libsqlite3-mod-ceph-dbg
-	dh_strip -pradosgw --dbg-package=radosgw-dbg
-	dh_strip -prbd-fuse --dbg-package=rbd-fuse-dbg
-	dh_strip -prbd-mirror --dbg-package=rbd-mirror-dbg
-	dh_strip -prbd-nbd --dbg-package=rbd-nbd-dbg
+	dh_strip -p ceph-base --dbg-package=ceph-base-dbg
+	dh_strip -p ceph-common --dbg-package=ceph-common-dbg
+	# dh_strip -p ceph-crimson-osd --dbg-package=ceph-crimson-osd-dbg
+	dh_strip -p ceph-fuse
+	dh_strip -p ceph-immutable-object-cache --dbg-package=ceph-immutable-object-cache-dbg
+	dh_strip -p ceph-mds --dbg-package=ceph-mds-dbg
+	dh_strip -p ceph-mgr --dbg-package=ceph-mgr-dbg
+	dh_strip -p ceph-mon --dbg-package=ceph-mon-dbg
+	dh_strip -p ceph-osd --dbg-package=ceph-osd-dbg
+	dh_strip -p ceph-test
+	dh_strip -p cephfs-mirror --dbg-package=cephfs-mirror-dbg
+	dh_strip -p libcephfs2 --dbg-package=libcephfs2-dbg
+	dh_strip -p librados-dev
+	dh_strip -p librados2 --dbg-package=librados2-dbg
+	dh_strip -p libradosstriper1 --dbg-package=libradosstriper1-dbg
+	dh_strip -p librbd1 --dbg-package=librbd1-dbg
+	dh_strip -p librgw2 --dbg-package=librgw2-dbg
+	# dh_strip -p libsqlite3-mod-ceph --dbg-package=libsqlite3-mod-ceph-dbg
+	dh_strip -p radosgw --dbg-package=radosgw-dbg
+	dh_strip -p rbd-fuse --dbg-package=rbd-fuse-dbg
+	dh_strip -p rbd-mirror --dbg-package=rbd-mirror-dbg
+	dh_strip -p rbd-nbd --dbg-package=rbd-nbd-dbg
 
 	# No -dbg packages for python3 bindings.
-	dh_strip -ppython3-cephfs
-	dh_strip -ppython3-rados
-	dh_strip -ppython3-rbd
-	dh_strip -ppython3-rgw
+	dh_strip -p python3-cephfs
+	dh_strip -p python3-rados
+	dh_strip -p python3-rbd
+	dh_strip -p python3-rgw
 
 override_dh_makeshlibs:
 # Exclude private erasure-code plugins.

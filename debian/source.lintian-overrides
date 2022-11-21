@@ -1,3 +1,0 @@
-# This is a false positive: upstream is shipping both the compiled
-# and the source version of the .js files.
-ceph source: source-is-missing

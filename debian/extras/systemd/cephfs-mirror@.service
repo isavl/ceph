@@ -12,7 +12,11 @@ PartOf=cephfs-mirror.target
 
 [Service]
 
-ExecStart=/usr/bin/cephfs-mirror --id %i --cluster ceph -f --setuser ceph --setgroup ceph
+ExecStart=/usr/bin/cephfs-mirror --cluster ceph --id %i --setuser ceph --setgroup ceph
+
+Type=forking
+
+PIDFile=/run/ceph/cephfs-mirror-%i.pid
 
 LimitNOFILE=1048576
 LimitNPROC=1048576

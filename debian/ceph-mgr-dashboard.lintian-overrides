@@ -1,0 +1,1 @@
+ceph-mgr-dashboard: shell-script-fails-syntax-check [usr/share/ceph/mgr/dashboard/ci/cephadm/bootstrap-cluster.sh]
