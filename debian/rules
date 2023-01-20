@@ -46,7 +46,7 @@ CONFFLAGS += -DWITH_GSSAPI=OFF
 CONFFLAGS += -DWITH_KRBD=ON
 CONFFLAGS += -DWITH_KVS=OFF
 CONFFLAGS += -DWITH_LIBCEPHFS=ON
-CONFFLAGS += -DWITH_LIBCEPHSQLITE=OFF
+CONFFLAGS += -DWITH_LIBCEPHSQLITE=ON
 CONFFLAGS += -DWITH_LIBRADOSSTRIPER=ON
 CONFFLAGS += -DWITH_LIBURING=ON
 CONFFLAGS += -DWITH_LZ4=ON
@@ -196,13 +196,13 @@ override_dh_strip:
 	dh_strip -p libradosstriper1 --dbg-package=libradosstriper1-dbg
 	dh_strip -p librbd1 --dbg-package=librbd1-dbg
 	dh_strip -p librgw2 --dbg-package=librgw2-dbg
-	# dh_strip -p libsqlite3-mod-ceph --dbg-package=libsqlite3-mod-ceph-dbg
+	dh_strip -p libsqlite3-mod-ceph --dbg-package=libsqlite3-mod-ceph-dbg
 	dh_strip -p radosgw --dbg-package=radosgw-dbg
 	dh_strip -p rbd-fuse --dbg-package=rbd-fuse-dbg
 	dh_strip -p rbd-mirror --dbg-package=rbd-mirror-dbg
 	dh_strip -p rbd-nbd --dbg-package=rbd-nbd-dbg
 
-	# No -dbg packages for python3 bindings.
+# No -dbg packages for python3 bindings.
 	dh_strip -p python3-cephfs
 	dh_strip -p python3-rados
 	dh_strip -p python3-rbd

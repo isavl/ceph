@@ -1,3 +1,2 @@
 usr/bin/ceph-exporter
 usr/bin/crimson-store-nbd
-usr/include/libcephsqlite.h

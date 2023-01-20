@@ -1,3 +1,9 @@
+ceph (17.2.5-2) unstable; urgency=medium
+
+  * Build with sqlite3 support
+
+ -- Igor Savlook <isav@alzari.pw>  Fri, 20 Jan 2023 13:08:16 +0300
+
 ceph (17.2.5-1) unstable; urgency=medium
 
   * Upstream release 17.2.5
