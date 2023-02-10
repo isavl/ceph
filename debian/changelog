@@ -1,3 +1,9 @@
+ceph (17.2.5-3) unstable; urgency=medium
+
+  * Rebuild for debian sid
+
+ -- Igor Savlook <isav@alzari.pw>  Sat, 11 Feb 2023 00:32:02 +0300
+
 ceph (17.2.5-2) unstable; urgency=medium
 
   * Build with sqlite3 support
