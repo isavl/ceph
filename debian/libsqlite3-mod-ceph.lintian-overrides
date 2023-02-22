@@ -1,0 +1,1 @@
+libsqlite3-mod-ceph: lacks-ldconfig-trigger usr/lib/x86_64-linux-gnu/libcephsqlite.so
