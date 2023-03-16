@@ -18,7 +18,7 @@ jobs:
         with:
           project: https://github.com/ceph/ceph/projects/6          
       - name: Assign milestone based on target brach name
-        uses: iyu/actions-milestone@dbf7e5348844c9ddc6b803a5721b85fa70fe3bb9
+        uses: iyu/actions-milestone@e93115c90ff7bcddee71086e9253f1b6a5f4b48a
         with:
           configuration-path: .github/milestone.yml
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
