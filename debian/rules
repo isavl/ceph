@@ -105,10 +105,8 @@ NUMJOBS = $(patsubst parallel=%,%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
 CONFFLAGS += -DBOOST_J=$(NUMJOBS)
 endif
 
-MAX_PARALLEL ?= $(shell $(CURDIR)/debian/scripts/calc-max-parallel.sh)
-
 %:
-	dh $@ --buildsystem=cmake+ninja --with=python3 $(MAX_PARALLEL)
+	dh $@ --buildsystem=cmake+ninja --with=python3
 
 override_dh_auto_configure:
 	dh_auto_configure --buildsystem=cmake+ninja -- $(CONFFLAGS)
@@ -134,9 +132,10 @@ override_dh_auto_install:
 
 	install -D -m 644 monitoring/ceph-mixin/prometheus_alerts.yml $(DESTDIR)/etc/prometheus/ceph/ceph_default_alerts.yml
 
-ifneq ($(findstring $(DEB_HOST_ARCH),amd64 arm64 ppc64el s390x),)
-	mv -f $(DESTDIR)/usr/bin/crimson-osd $(DESTDIR)/usr/bin/ceph-osd
-endif
+# Use crimson-osd as ceph-osd.
+	if [ -f $(DESTDIR)/usr/bin/crimson-osd ]; then \
+		mv -f $(DESTDIR)/usr/bin/crimson-osd $(DESTDIR)/usr/bin/ceph-osd; \
+	fi
 
 	rm -f -r $(DESTDIR)/etc/bash_completion.d
 

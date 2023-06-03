@@ -1,3 +1,11 @@
+ceph (17.2.6-3) unstable; urgency=medium
+
+  * crimson-osd: Check for file instead supported architectures on install
+    stage
+  * Remove max parallel job script
+
+ -- Igor Savlook <isav@alzari.pw>  Sat, 03 Jun 2023 04:33:16 +0300
+
 ceph (17.2.6-2) unstable; urgency=medium
 
   * Enable crimson build on supported architectures
