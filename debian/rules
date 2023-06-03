@@ -6,11 +6,8 @@ DPKG_EXPORT_BUILDFLAGS = 1
 
 include /usr/share/dpkg/default.mk
 
-DEB_HOST_ARCH_BITS ?= $(shell dpkg-architecture -qDEB_HOST_ARCH_BITS)
-
 export DESTDIR = $(CURDIR)/debian/tmp
 
-export DEB_BUILD_ARCH ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH)
 export DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
 
 # As of 2022-09-27 fmt > 9 has deprecated an API that is used extensively
@@ -21,13 +18,14 @@ export DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
 #   Debian: https://salsa.debian.org/ceph-team/ceph/-/merge_requests/9
 CXXFLAGS += -DFMT_DEPRECATED_OSTREAM
 
-CONFFLAGS := -DCMAKE_BUILD_TYPE=RelWithDebInfo
+CONFFLAGS := -DCMAKE_BUILD_TYPE="RelWithDebInfo"
 CONFFLAGS += -DCMAKE_C_FLAGS_RELWITHDEBINFO="$(CFLAGS)"
 CONFFLAGS += -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="$(CXXFLAGS)"
 CONFFLAGS += -DCMAKE_INSTALL_LIBEXECDIR=/usr/lib
 CONFFLAGS += -DCMAKE_INSTALL_SYSCONFDIR=/etc
 CONFFLAGS += -DCEPH_SYSTEMD_ENV_DIR=/etc/default
 CONFFLAGS += -DSYSTEMD_SYSTEM_UNIT_DIR=/lib/systemd/system
+CONFFLAGS += -DALLOCATOR="tcmalloc"
 CONFFLAGS += -DDASHBOARD_FRONTEND_LANGS="en-US"
 CONFFLAGS += -DENABLE_GIT_VERSION=ON
 CONFFLAGS += -DWITH_BLUESTORE=ON
@@ -98,9 +96,7 @@ CONFFLAGS += -DWITH_OSD_INSTRUMENT_FUNCTIONS=OFF
 
 # Enable crimson build on supported architectures.
 ifneq ($(findstring $(DEB_HOST_ARCH),amd64 arm64 ppc64el s390x),)
-CONFFLAGS += -DWITH_SEASTAR=OFF
-# CONFFLAGS += -DWITH_SEASTAR=ON
-# CONFFLAGS += -DSeastar_CXX_FLAGS=-DSEASTAR_DEFAULT_ALLOCATOR
+CONFFLAGS += -DWITH_SEASTAR=ON
 endif
 
 # Required when build without system boost (WITH_SYSTEM_BOOST=OFF).
@@ -137,6 +133,10 @@ override_dh_auto_install:
 	install -m 755 src/cephadm/cephadm $(DESTDIR)/usr/sbin/cephadm
 
 	install -D -m 644 monitoring/ceph-mixin/prometheus_alerts.yml $(DESTDIR)/etc/prometheus/ceph/ceph_default_alerts.yml
+
+ifneq ($(findstring $(DEB_HOST_ARCH),amd64 arm64 ppc64el s390x),)
+	mv -f $(DESTDIR)/usr/bin/crimson-osd $(DESTDIR)/usr/bin/ceph-osd
+endif
 
 	rm -f -r $(DESTDIR)/etc/bash_completion.d
 
@@ -181,7 +181,6 @@ override_dh_installsystemd:
 override_dh_strip:
 	dh_strip -p ceph-base --dbg-package=ceph-base-dbg
 	dh_strip -p ceph-common --dbg-package=ceph-common-dbg
-	# dh_strip -p ceph-crimson-osd --dbg-package=ceph-crimson-osd-dbg
 	dh_strip -p ceph-fuse
 	dh_strip -p ceph-immutable-object-cache --dbg-package=ceph-immutable-object-cache-dbg
 	dh_strip -p ceph-mds --dbg-package=ceph-mds-dbg

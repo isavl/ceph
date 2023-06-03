@@ -1,3 +1,9 @@
+ceph (17.2.6-2) unstable; urgency=medium
+
+  * Enable crimson build on supported architectures
+
+ -- Igor Savlook <isav@alzari.pw>  Fri, 02 Jun 2023 22:30:28 +0300
+
 ceph (17.2.6-1) unstable; urgency=medium
 
   * Upstream release 17.2.6
