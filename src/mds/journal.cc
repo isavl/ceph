@@ -1298,7 +1298,7 @@ void EMetaBlob::replay(MDSRank *mds, LogSegment *logseg, MDPeerUpdate *peerup)
 	ceph_assert(dn->last == fb.dnlast);
       }
       if (lump.is_importing())
-	dn->state_set(CDentry::STATE_AUTH);
+	dn->mark_auth();
 
       CInode *in = mds->mdcache->get_inode(fb.inode->ino, fb.dnlast);
       if (!in) {
@@ -1362,6 +1362,17 @@ void EMetaBlob::replay(MDSRank *mds, LogSegment *logseg, MDPeerUpdate *peerup)
 	in->state_clear(CInode::STATE_AUTH);
       ceph_assert(g_conf()->mds_kill_journal_replay_at != 2);
 
+      {
+        auto do_corruption = mds->get_inject_journal_corrupt_dentry_first();
+        if (unlikely(do_corruption > 0.0)) {
+          auto r = ceph::util::generate_random_number(0.0, 1.0);
+          if (r < do_corruption) {
+            dout(0) << "corrupting dn: " << *dn << dendl;
+            dn->first = -10;
+          }
+        }
+      }
+
       if (!(++count % mds->heartbeat_reset_grace()))
         mds->heartbeat_reset();
     }
@@ -1395,7 +1406,7 @@ void EMetaBlob::replay(MDSRank *mds, LogSegment *logseg, MDPeerUpdate *peerup)
 	ceph_assert(dn->last == rb.dnlast);
       }
       if (lump.is_importing())
-	dn->state_set(CDentry::STATE_AUTH);
+	dn->mark_auth();
 
       if (!(++count % mds->heartbeat_reset_grace()))
         mds->heartbeat_reset();
@@ -1430,7 +1441,7 @@ void EMetaBlob::replay(MDSRank *mds, LogSegment *logseg, MDPeerUpdate *peerup)
       }
       olddir = dir;
       if (lump.is_importing())
-	dn->state_set(CDentry::STATE_AUTH);
+	dn->mark_auth();
 
       // Make null dentries the first things we trim
       dout(10) << "EMetaBlob.replay pushing to bottom of lru " << *dn << dendl;

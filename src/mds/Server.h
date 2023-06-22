@@ -498,9 +498,13 @@ private:
   bool replay_unsafe_with_closed_session = false;
   double cap_revoke_eviction_timeout = 0;
   uint64_t max_snaps_per_dir = 100;
+  // long snapshot names have the following format: "_<SNAPSHOT-NAME>_<INODE-NUMBER>"
+  uint64_t snapshot_name_max = NAME_MAX - 1 - 1 - 13;
   unsigned delegate_inos_pct = 0;
   uint64_t dir_max_entries = 0;
   int64_t bal_fragment_size_max = 0;
+
+  double inject_rename_corrupt_dentry_first = 0.0;
 
   DecayCounter recall_throttle;
   time last_recall_state;
@@ -514,6 +518,7 @@ private:
   double caps_throttle_retry_request_timeout;
 
   size_t alternate_name_max = g_conf().get_val<Option::size_t>("mds_alternate_name_max");
+  size_t fscrypt_last_block_max_size = g_conf().get_val<Option::size_t>("mds_fscrypt_last_block_max_size");
 };
 
 static inline constexpr auto operator|(Server::RecallFlags a, Server::RecallFlags b) {

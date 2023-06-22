@@ -8,3 +8,6 @@ cscope.*
 __pycache__/
 cmake/Cooking.cmake
 tags
+.idea/
+.vscode/
+compile_commands.json
