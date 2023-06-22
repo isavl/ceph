@@ -10,6 +10,4 @@ usr/bin/rgw-gap-list
 usr/bin/rgw-gap-list-comparator
 usr/bin/rgw-orphan-list
 
-usr/lib/*/libradosgw.so.*
-
 usr/share/man/man8/radosgw.8

@@ -1,8 +1,0 @@
-0001-boost-python311.patch
-0003-src-common-bitstr.h.patch
-0008-cmake-modules-Finduring.cmake.patch
-0017-gcc-12-omnibus.patch
-0018-src-rgw-store-dbstore-CMakeLists.txt.patch
-0019-cmake-modules-CheckCxxAtomic.cmake.patch
-0020-src-arrow-cpp-cmake_modules-ThirdpartyToolchain.cmake.patch
-0023-src-s3select-include-s3select_parquet_intrf.h.patch

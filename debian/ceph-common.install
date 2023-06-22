@@ -24,6 +24,8 @@ usr/bin/radosgw-admin
 usr/bin/rbd
 usr/bin/rbd-replay*
 usr/bin/rbdmap
+usr/bin/rgw-policy-check
+usr/bin/rgw-restore-bucket-index
 
 usr/sbin/mount.ceph sbin
 
@@ -47,3 +49,4 @@ usr/share/man/man8/rbd-replay*.8
 usr/share/man/man8/rbd.8
 usr/share/man/man8/rbdmap.8
 usr/share/man/man8/rgw-orphan-list.8
+usr/share/man/man8/rgw-policy-check.8

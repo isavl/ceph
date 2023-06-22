@@ -1,3 +1,10 @@
+ceph (18.1.1-1) unstable; urgency=medium
+
+  * Upstream release 18.1.1
+  * Use builtin libfmt, liburing, utf8proc and zstd
+
+ -- Igor Savlook <isav@alzari.pw>  Thu, 22 Jun 2023 18:15:06 +0300
+
 ceph (17.2.6-3) unstable; urgency=medium
 
   * crimson-osd: Check for file instead supported architectures on install

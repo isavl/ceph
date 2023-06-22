@@ -10,14 +10,6 @@ export DESTDIR = $(CURDIR)/debian/tmp
 
 export DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
 
-# As of 2022-09-27 fmt > 9 has deprecated an API that is used extensively
-# throughout the code base.
-#
-# See:
-#   Upstream: https://tracker.ceph.com/issues/56610
-#   Debian: https://salsa.debian.org/ceph-team/ceph/-/merge_requests/9
-CXXFLAGS += -DFMT_DEPRECATED_OSTREAM
-
 CONFFLAGS := -DCMAKE_BUILD_TYPE="RelWithDebInfo"
 CONFFLAGS += -DCMAKE_C_FLAGS_RELWITHDEBINFO="$(CFLAGS)"
 CONFFLAGS += -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="$(CXXFLAGS)"
@@ -74,12 +66,12 @@ CONFFLAGS += -DWITH_SYSTEMD=ON
 CONFFLAGS += -DWITH_SYSTEM_ARROW=OFF
 CONFFLAGS += -DWITH_SYSTEM_BOOST=OFF
 CONFFLAGS += -DWITH_SYSTEM_GTEST=OFF
-CONFFLAGS += -DWITH_SYSTEM_LIBURING=ON
+CONFFLAGS += -DWITH_SYSTEM_LIBURING=OFF
 CONFFLAGS += -DWITH_SYSTEM_NPM=OFF
 CONFFLAGS += -DWITH_SYSTEM_PMDK=OFF
 CONFFLAGS += -DWITH_SYSTEM_ROCKSDB=OFF
-CONFFLAGS += -DWITH_SYSTEM_UTF8PROC=ON
-CONFFLAGS += -DWITH_SYSTEM_ZSTD=ON
+CONFFLAGS += -DWITH_SYSTEM_UTF8PROC=OFF
+CONFFLAGS += -DWITH_SYSTEM_ZSTD=OFF
 CONFFLAGS += -DWITH_TESTS=OFF
 CONFFLAGS += -DWITH_THREAD_SAFE_RES_QUERY=OFF
 CONFFLAGS += -DWITH_XFS=ON
@@ -127,8 +119,6 @@ override_dh_auto_install:
 	if [ ! -f $(DESTDIR)/usr/bin/ceph-dencoder ]; then \
 		install -m 755 debian/extras/ceph-dencoder-oom $(DESTDIR)/usr/bin/ceph-dencoder; \
 	fi
-
-	install -m 755 src/cephadm/cephadm $(DESTDIR)/usr/sbin/cephadm
 
 	install -D -m 644 monitoring/ceph-mixin/prometheus_alerts.yml $(DESTDIR)/etc/prometheus/ceph/ceph_default_alerts.yml
 
@@ -217,7 +207,6 @@ override_dh_python3:
 	for i in ceph-base ceph-common ceph-mgr ceph-osd cephadm cephfs-shell cephfs-top; do \
 		dh_python3 -p $$i --shebang=/usr/bin/python3; \
 	done
-
 	for i in ceph ceph-argparse cephfs ceph-common rados rbd rgw; do \
 		dh_python3 -p python3-$$i --shebang=/usr/bin/python3; \
 	done
