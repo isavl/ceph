@@ -87,8 +87,11 @@ CONFFLAGS += -DWITH_LTTNG=OFF
 CONFFLAGS += -DWITH_OSD_INSTRUMENT_FUNCTIONS=OFF
 
 # Enable crimson build on supported architectures.
+#
+# NOTE: Currently experimental so turn if off.
 ifneq ($(findstring $(DEB_HOST_ARCH),amd64 arm64 ppc64el s390x),)
-CONFFLAGS += -DWITH_SEASTAR=ON
+# CONFFLAGS += -DWITH_SEASTAR=ON
+CONFFLAGS += -DWITH_SEASTAR=OFF
 endif
 
 # Required when build without system boost (WITH_SYSTEM_BOOST=OFF).
