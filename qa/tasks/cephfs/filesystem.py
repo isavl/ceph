@@ -375,6 +375,9 @@ class MDSCluster(CephCluster):
         """
         self.mds_daemons[mds_id].signal(sig, silent);
 
+    def mds_is_running(self, mds_id):
+        return self.mds_daemons[mds_id].running()
+
     def newfs(self, name='cephfs', create=True):
         return Filesystem(self._ctx, name=name, create=create)
 
@@ -1100,6 +1103,10 @@ class Filesystem(MDSCluster):
     def rank_fail(self, rank=0):
         self.mon_manager.raw_cluster_cmd("mds", "fail", "{}:{}".format(self.id, rank))
 
+    def rank_is_running(self, rank=0, status=None):
+        name = self.get_rank(rank=rank, status=status)['name']
+        return self.mds_is_running(name)
+
     def get_ranks(self, status=None):
         if status is None:
             status = self.getinfo()
@@ -1145,6 +1152,9 @@ class Filesystem(MDSCluster):
 
         if timeout is None:
             timeout = DAEMON_WAIT_TIMEOUT
+
+        if self.id is None:
+            status = self.getinfo(refresh=True)
 
         if status is None:
             status = self.status()
